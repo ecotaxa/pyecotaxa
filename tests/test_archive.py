@@ -3,7 +3,7 @@ from io import StringIO
 import pandas as pd
 import pytest
 from pyecotaxa.archive import read_tsv, write_tsv
-from pandas.testing import assert_frame_equal
+from pandas.testing import assert_frame_equal, assert_series_equal
 
 
 @pytest.mark.parametrize("enforce_types", [True, False])
@@ -38,3 +38,14 @@ def test_write_tsv():
     # Check round tripping
     dataframe2 = read_tsv(StringIO(content))
     assert_frame_equal(dataframe, dataframe2)
+
+
+def test_empty_str_column():
+    file_content = "a\tb\tc\n[t]\t[f]\t[t]\n\t2.0\ta"
+
+    dataframe = read_tsv(StringIO(file_content), enforce_types=True)
+    assert len(dataframe) == 1
+
+    assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
+
+    assert_series_equal(dataframe["a"], pd.Series([""]), check_names=False)
