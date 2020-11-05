@@ -28,7 +28,7 @@ def _fix_types(dataframe, enforce_types):
     if enforce_types:
         # Enforce [f] types
         dataframe[float_cols] = dataframe[float_cols].astype(float)
-        dataframe[text_cols] = dataframe[text_cols].astype(str)
+        dataframe[text_cols] = dataframe[text_cols].fillna("").astype(str)
 
     return dataframe
 
