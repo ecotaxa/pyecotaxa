@@ -10,9 +10,6 @@ def _fix_types(dataframe, enforce_types):
     header = dataframe.columns.get_level_values(0)
     types = dataframe.columns.get_level_values(1)
 
-    print("header", header)
-    print("types", types)
-
     dataframe.columns = header
 
     float_cols = []
@@ -60,3 +57,26 @@ def read_tsv(filepath_or_buffer, encoding=None, enforce_types=False) -> pd.DataF
 
     return _fix_types(dataframe, enforce_types)
 
+
+def _dtype_to_ecotaxa(dtype):
+    if np.issubdtype(dtype, np.number):
+        return "[f]"
+
+    return "[t]"
+
+
+def write_tsv(dataframe: pd.DataFrame, path_or_buf=None, encoding=None):
+
+    # TODO: Use default encoding that EcoTaxa uses
+    # if encoding is None:
+    #     encoding = ...
+
+    # Make a copy before changing the index
+    dataframe = dataframe.copy()
+
+    # Inject types into header
+    type_header = [_dtype_to_ecotaxa(dt) for dt in dataframe.dtypes]
+    dataframe.columns = pd.MultiIndex.from_tuples(
+        list(zip(dataframe.columns, type_header))
+    )
+    return dataframe.to_csv(path_or_buf, sep="\t", encoding=encoding, index=False)

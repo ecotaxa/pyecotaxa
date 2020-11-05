@@ -1,8 +1,9 @@
-from pyecotaxa.archive import read_tsv
-from inspect import cleandoc
 from io import StringIO
-from textwrap import dedent
+
+import pandas as pd
 import pytest
+from pyecotaxa.archive import read_tsv, write_tsv
+from pandas.testing import assert_frame_equal
 
 
 @pytest.mark.parametrize("enforce_types", [True, False])
@@ -23,3 +24,17 @@ def test_read_tsv_unexpected_type():
 
     with pytest.raises(ValueError, match="Unexpected type"):
         read_tsv(StringIO(file_content))
+
+
+def test_write_tsv():
+    dataframe = pd.DataFrame(
+        {"i": [1, 2, 3], "O": ["a", "b", "c"], "f": [1.0, 2.0, 3.0]}
+    )
+
+    content = write_tsv(dataframe)
+
+    assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+
+    # Check round tripping
+    dataframe2 = read_tsv(StringIO(content))
+    assert_frame_equal(dataframe, dataframe2)
