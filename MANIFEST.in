@@ -1,0 +1,2 @@
+include versioneer.py
+include pyecotaxa/_version.py
