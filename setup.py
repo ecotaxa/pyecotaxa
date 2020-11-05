@@ -17,19 +17,20 @@ setup(
     url="https://github.com/ecotaxa/pyecotaxa",
     packages=find_packages(),
     include_package_data=True,
-    install_requires=["pandas"],
+    install_requires=["pandas", "numpy"],
     python_requires=">=3.6",
     extras_require={
-        "tests": [
+        "test": [
             # Pytest
             "pytest",
             "pytest-cov",
         ],
-        "docs": [
+        "doc": [
             "sphinx >= 1.4",
             "sphinx_rtd_theme",
             "sphinx-autodoc-typehints>=1.10.0",
         ],
+        "dev": ["black"],
     },
     entry_points={},
     classifiers=[
