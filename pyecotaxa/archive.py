@@ -81,11 +81,7 @@ def _dtype_to_ecotaxa(dtype):
 
 
 def write_tsv(
-    dataframe: pd.DataFrame,
-    path_or_buf=None,
-    encoding=None,
-    type_header=False,
-    **kwargs
+    dataframe: pd.DataFrame, path_or_buf=None, encoding=None, type_header=True, **kwargs
 ):
     """
     Write an individual EcoTaxa TSV file.
@@ -96,6 +92,8 @@ def write_tsv(
         encoding: ...
         enforce_types: Enforce the column dtypes provided in the header.
             Usually, it is desirable to allow pandas to infer the column dtypes.
+        type_header (bool, default true): Include the type header ([t]/[f]).
+            This is required for a successful import into EcoTaxa.
 
     Return:
         A Pandas dataframe.
