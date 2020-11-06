@@ -89,9 +89,8 @@ def write_tsv(
         A Pandas dataframe.
     """
 
-    # TODO: Use default encoding that EcoTaxa uses
-    # if encoding is None:
-    #     encoding = ...
+    if encoding is None:
+        encoding = "ascii"
 
     if type_header:
         # Make a copy before changing the index
