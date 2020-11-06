@@ -22,7 +22,7 @@ def test_read_tsv(enforce_types):
 def test_read_tsv_unexpected_type():
     file_content = "a\tb\tc\n[s]\t[f]\t[t]\n1\t2.0\ta"
 
-    with pytest.raises(ValueError, match="Unexpected type"):
+    with pytest.raises(ValueError, match=r"Unexpected type: '\[s\]'"):
         read_tsv(StringIO(file_content))
 
 

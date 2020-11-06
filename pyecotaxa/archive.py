@@ -23,7 +23,7 @@ def _fix_types(dataframe, enforce_types):
             # If the first row contains other values than [f] or [t],
             # it is not a type header but a normal line of values and has to be inserted into the dataframe.
             # For now, we don't support such files and raise an Exception instead.
-            raise ValueError("Unexpected type: {t!r}")
+            raise ValueError(f"Unexpected type: {t!r}")
 
     if enforce_types:
         # Enforce [f] types
