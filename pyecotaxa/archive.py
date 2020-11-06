@@ -1,7 +1,9 @@
 """Read and write EcoTaxa archives and individual EcoTaxa TSV files."""
 
-import pandas as pd
+import warnings
+
 import numpy as np
+import pandas as pd
 
 __all__ = ["read_tsv", "write_tsv"]
 
@@ -22,8 +24,14 @@ def _fix_types(dataframe, enforce_types):
         else:
             # If the first row contains other values than [f] or [t],
             # it is not a type header but a normal line of values and has to be inserted into the dataframe.
-            # For now, we don't support such files and raise an Exception instead.
-            raise ValueError(f"Unexpected type: {t!r}")
+            # This is the case for "General export".
+            # Prepend the current "types" to the dataframe:
+            row0 = pd.DataFrame([types], columns=header).astype(dataframe.dtypes)
+
+            if enforce_types:
+                warnings.warn("enforce_types=True, but no type header was found.")
+
+            return pd.concat((row0, dataframe), ignore_index=True)
 
     if enforce_types:
         # Enforce [f] types
@@ -47,9 +55,8 @@ def read_tsv(filepath_or_buffer, encoding=None, enforce_types=False) -> pd.DataF
         A Pandas dataframe.
     """
 
-    # TODO: Use default encoding that EcoTaxa uses
-    # if encoding is None:
-    #     encoding = ...
+    if encoding is None:
+        encoding = "ascii"
 
     dataframe = pd.read_csv(
         filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1]
@@ -65,18 +72,35 @@ def _dtype_to_ecotaxa(dtype):
     return "[t]"
 
 
-def write_tsv(dataframe: pd.DataFrame, path_or_buf=None, encoding=None):
+def write_tsv(
+    dataframe: pd.DataFrame, path_or_buf=None, encoding=None, type_header=False
+):
+    """
+    Write an individual EcoTaxa TSV file.
+
+    Args:
+        dataframe: A pandas DataFrame.
+        path_or_buf (str, path object or file-like object): ...
+        encoding: ...
+        enforce_types: Enforce the column dtypes provided in the header.
+            Usually, it is desirable to allow pandas to infer the column dtypes.
+
+    Return:
+        A Pandas dataframe.
+    """
 
     # TODO: Use default encoding that EcoTaxa uses
     # if encoding is None:
     #     encoding = ...
 
-    # Make a copy before changing the index
-    dataframe = dataframe.copy()
+    if type_header:
+        # Make a copy before changing the index
+        dataframe = dataframe.copy()
 
-    # Inject types into header
-    type_header = [_dtype_to_ecotaxa(dt) for dt in dataframe.dtypes]
-    dataframe.columns = pd.MultiIndex.from_tuples(
-        list(zip(dataframe.columns, type_header))
-    )
+        # Inject types into header
+        type_header = [_dtype_to_ecotaxa(dt) for dt in dataframe.dtypes]
+        dataframe.columns = pd.MultiIndex.from_tuples(
+            list(zip(dataframe.columns, type_header))
+        )
+
     return dataframe.to_csv(path_or_buf, sep="\t", encoding=encoding, index=False)

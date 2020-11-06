@@ -7,33 +7,36 @@ from pandas.testing import assert_frame_equal, assert_series_equal
 
 
 @pytest.mark.parametrize("enforce_types", [True, False])
-def test_read_tsv(enforce_types):
-    file_content = "a\tb\tc\n[t]\t[f]\t[t]\n1\t2.0\ta"
+@pytest.mark.parametrize("type_header", [True, False])
+def test_read_tsv(enforce_types, type_header):
+    if type_header:
+        file_content = "a\tb\tc\n[t]\t[f]\t[t]\n1\t2.0\ta\n3\t4.0\tb"
+    else:
+        file_content = "a\tb\tc\n1\t2.0\ta\n3\t4.0\tb"
 
     dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
-    assert len(dataframe) == 1
+    assert len(dataframe) == 2
 
-    if enforce_types:
+    assert list(dataframe.columns) == ["a", "b", "c"]
+
+    if type_header and enforce_types:
         assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
     else:
         assert [dt.kind for dt in dataframe.dtypes] == ["i", "f", "O"]
 
 
-def test_read_tsv_unexpected_type():
-    file_content = "a\tb\tc\n[s]\t[f]\t[t]\n1\t2.0\ta"
-
-    with pytest.raises(ValueError, match=r"Unexpected type: '\[s\]'"):
-        read_tsv(StringIO(file_content))
-
-
-def test_write_tsv():
+@pytest.mark.parametrize("type_header", [True, False])
+def test_write_tsv(type_header):
     dataframe = pd.DataFrame(
         {"i": [1, 2, 3], "O": ["a", "b", "c"], "f": [1.0, 2.0, 3.0]}
     )
 
-    content = write_tsv(dataframe)
+    content = write_tsv(dataframe, type_header=type_header)
 
-    assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+    if type_header:
+        assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+    else:
+        assert content == "i\tO\tf\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
 
     # Check round tripping
     dataframe2 = read_tsv(StringIO(content))
