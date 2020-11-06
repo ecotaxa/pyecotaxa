@@ -25,11 +25,17 @@ def _fix_types(dataframe, enforce_types):
             # If the first row contains other values than [f] or [t],
             # it is not a type header but a normal line of values and has to be inserted into the dataframe.
             # This is the case for "General export".
-            # Prepend the current "types" to the dataframe:
+
+            # Clean up empty fields
+            types = [None if t.startswith("Unnamed") else t for t in types]
+
+            # Prepend the current "types" to the dataframe
             row0 = pd.DataFrame([types], columns=header).astype(dataframe.dtypes)
 
             if enforce_types:
-                warnings.warn("enforce_types=True, but no type header was found.")
+                warnings.warn(
+                    "enforce_types=True, but no type header was found.", stacklevel=3
+                )
 
             return pd.concat((row0, dataframe), ignore_index=True)
 
@@ -41,7 +47,9 @@ def _fix_types(dataframe, enforce_types):
     return dataframe
 
 
-def read_tsv(filepath_or_buffer, encoding=None, enforce_types=False) -> pd.DataFrame:
+def read_tsv(
+    filepath_or_buffer, encoding=None, enforce_types=False, **kwargs
+) -> pd.DataFrame:
     """
     Read an individual EcoTaxa TSV file.
 
@@ -59,7 +67,7 @@ def read_tsv(filepath_or_buffer, encoding=None, enforce_types=False) -> pd.DataF
         encoding = "ascii"
 
     dataframe = pd.read_csv(
-        filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1]
+        filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1], **kwargs
     )
 
     return _fix_types(dataframe, enforce_types)
@@ -73,7 +81,11 @@ def _dtype_to_ecotaxa(dtype):
 
 
 def write_tsv(
-    dataframe: pd.DataFrame, path_or_buf=None, encoding=None, type_header=False
+    dataframe: pd.DataFrame,
+    path_or_buf=None,
+    encoding=None,
+    type_header=False,
+    **kwargs
 ):
     """
     Write an individual EcoTaxa TSV file.
@@ -102,4 +114,6 @@ def write_tsv(
             list(zip(dataframe.columns, type_header))
         )
 
-    return dataframe.to_csv(path_or_buf, sep="\t", encoding=encoding, index=False)
+    return dataframe.to_csv(
+        path_or_buf, sep="\t", encoding=encoding, index=False, **kwargs
+    )

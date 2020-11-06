@@ -1,28 +1,33 @@
 from io import StringIO
 
+import numpy as np
 import pandas as pd
 import pytest
-from pyecotaxa.archive import read_tsv, write_tsv
 from pandas.testing import assert_frame_equal, assert_series_equal
+from pyecotaxa.archive import read_tsv, write_tsv
 
 
 @pytest.mark.parametrize("enforce_types", [True, False])
 @pytest.mark.parametrize("type_header", [True, False])
 def test_read_tsv(enforce_types, type_header):
     if type_header:
-        file_content = "a\tb\tc\n[t]\t[f]\t[t]\n1\t2.0\ta\n3\t4.0\tb"
+        file_content = "a\tb\tc\td\n[t]\t[f]\t[t]\t[t]\n1\t2.0\ta\t\n3\t4.0\tb\t"
     else:
-        file_content = "a\tb\tc\n1\t2.0\ta\n3\t4.0\tb"
+        file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
     dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
     assert len(dataframe) == 2
 
-    assert list(dataframe.columns) == ["a", "b", "c"]
+    assert list(dataframe.columns) == ["a", "b", "c", "d"]
 
     if type_header and enforce_types:
-        assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
+        assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O", "O"]
+        assert_series_equal(dataframe["d"], pd.Series(["", ""]), check_names=False)
     else:
-        assert [dt.kind for dt in dataframe.dtypes] == ["i", "f", "O"]
+        assert [dt.kind for dt in dataframe.dtypes] == ["i", "f", "O", "f"]
+        assert_series_equal(
+            dataframe["d"], pd.Series([np.nan, np.nan]), check_names=False
+        )
 
 
 @pytest.mark.parametrize("type_header", [True, False])
