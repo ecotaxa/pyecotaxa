@@ -24,9 +24,9 @@ setup(
             # Pytest
             "pytest",
             "pytest-cov",
-            "flake8"
+            "flake8",
         ],
-        "doc": [
+        "docs": [
             "sphinx >= 1.4",
             "sphinx_rtd_theme",
             "sphinx-autodoc-typehints>=1.10.0",

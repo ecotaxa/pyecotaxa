@@ -130,4 +130,4 @@ dmypy.json
 
 .vscode/
 experiments/
-doc/_build/
+docs/_build/
