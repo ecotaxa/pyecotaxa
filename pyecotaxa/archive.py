@@ -96,7 +96,9 @@ def write_tsv(
             This is required for a successful import into EcoTaxa.
 
     Return:
-        A Pandas dataframe.
+        None or str
+
+            If path_or_buf is None, returns the resulting csv format as a string. Otherwise returns None.
     """
 
     if encoding is None:
