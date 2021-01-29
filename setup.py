@@ -24,6 +24,7 @@ setup(
             # Pytest
             "pytest",
             "pytest-cov",
+            "flake8"
         ],
         "doc": [
             "sphinx >= 1.4",
