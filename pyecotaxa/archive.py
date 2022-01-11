@@ -47,8 +47,23 @@ def _fix_types(dataframe, enforce_types):
     return dataframe
 
 
+def _apply_usecols(
+    df: pd.DataFrame, usecols: Union[Callable, List[str]]
+) -> pd.DataFrame:
+    if callable(usecols):
+        columns = [c for c in df.columns if usecols(c)]
+    else:
+        columns = [c for c in df.columns if c in usecols]
+
+    return df[columns]
+
+
 def read_tsv(
-    filepath_or_buffer, encoding=None, enforce_types=False, **kwargs
+    filepath_or_buffer,
+    encoding=None,
+    enforce_types=False,
+    usecols: Union[None, Callable, List[str]] = None,
+    **kwargs
 ) -> pd.DataFrame:
     """
     Read an individual EcoTaxa TSV file.
@@ -58,17 +73,40 @@ def read_tsv(
         encoding: ...
         enforce_types: Enforce the column dtypes provided in the header.
             Usually, it is desirable to allow pandas to infer the column dtypes.
+        usecols: List of strings or callable.
+        **kwargs: Additional kwargs are passed to :func:`pandas:pandas.read_csv`.
 
-    Return:
-        A Pandas dataframe.
+    Returns:
+        A Pandas :class:`~pandas:pandas.DataFrame`.
     """
 
     if encoding is None:
         encoding = "ascii"
 
-    dataframe = pd.read_csv(
-        filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1], **kwargs
-    )
+    if usecols is not None:
+        chunksize = kwargs.pop("chunksize", 10000)
+
+        # Read a few rows a time
+        dataframe: pd.DataFrame = pd.concat(
+            [
+                _apply_usecols(chunk, usecols)
+                for chunk in pd.read_csv(
+                    filepath_or_buffer,
+                    sep="\t",
+                    encoding=encoding,
+                    header=[0, 1],
+                    chunksize=chunksize,
+                    **kwargs,
+                )
+            ]
+        )  # type: ignore
+    else:
+        if kwargs.pop("chunksize", None) is not None:
+            warnings.warn("Parameter chunksize is ignored.")
+
+        dataframe: pd.DataFrame = pd.read_csv(
+            filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1], **kwargs
+        )  # type: ignore
 
     return _fix_types(dataframe, enforce_types)
 
