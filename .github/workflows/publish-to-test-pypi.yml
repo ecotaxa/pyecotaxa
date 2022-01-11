@@ -9,6 +9,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@master
+      with:
+        # Complete checkout, see https://github.com/python-versioneer/python-versioneer/issues/206
+        fetch-depth: 0
     - name: Set up Python 3.7
       uses: actions/setup-python@v1
       with:
