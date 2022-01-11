@@ -1,14 +1,16 @@
 """Read and write EcoTaxa archives and individual EcoTaxa TSV files."""
 
+from typing import Callable, List, Union
 import warnings
 
 import numpy as np
 import pandas as pd
+from pandas.core.frame import DataFrame
 
 __all__ = ["read_tsv", "write_tsv"]
 
 
-def _fix_types(dataframe, enforce_types):
+def _fix_types(dataframe: pd.DataFrame, enforce_types: bool) -> pd.DataFrame:
     header = dataframe.columns.get_level_values(0)
     types = dataframe.columns.get_level_values(1)
 
@@ -58,9 +60,10 @@ def read_tsv(
         encoding: ...
         enforce_types: Enforce the column dtypes provided in the header.
             Usually, it is desirable to allow pandas to infer the column dtypes.
+        **kwargs: Additional kwargs are passed to :func:`pandas:pandas.read_csv`.
 
-    Return:
-        A Pandas dataframe.
+    Returns:
+        A Pandas :class:`~pandas:pandas.DataFrame`.
     """
 
     if encoding is None:
@@ -81,28 +84,30 @@ def _dtype_to_ecotaxa(dtype):
 
 
 def write_tsv(
-    dataframe: pd.DataFrame, path_or_buf=None, encoding=None, type_header=True, **kwargs
+    dataframe: pd.DataFrame,
+    path_or_buf=None,
+    encoding="utf-8-sig",
+    type_header=True,
+    **kwargs
 ):
     """
-    Write an individual EcoTaxa TSV file.
+    Write the given DataFrame to an EcoTaxa TSV file.
 
     Args:
-        dataframe: A pandas DataFrame.
+        dataframe (:class:`~pandas:pandas.DataFrame`): The data.
         path_or_buf (str, path object or file-like object): ...
-        encoding: ...
+        encoding: A string representing the encoding to use in the output file, defaults to ‘utf-8-sig’.
         enforce_types: Enforce the column dtypes provided in the header.
             Usually, it is desirable to allow pandas to infer the column dtypes.
         type_header (bool, default true): Include the type header ([t]/[f]).
             This is required for a successful import into EcoTaxa.
+        **kwargs: Additional kwargs are passed to :meth:`pandas:pandas.DataFrame.to_csv`.
 
     Return:
         None or str
 
             If path_or_buf is None, returns the resulting csv format as a string. Otherwise returns None.
     """
-
-    if encoding is None:
-        encoding = "ascii"
 
     if type_header:
         # Make a copy before changing the index

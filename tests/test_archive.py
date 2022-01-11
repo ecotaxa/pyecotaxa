@@ -1,7 +1,9 @@
-from io import StringIO
+from io import BytesIO, StringIO
+from typing import Union
 
 import numpy as np
 import pandas as pd
+from pandas.core.algorithms import isin
 import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
 from pyecotaxa.archive import read_tsv, write_tsv
@@ -31,20 +33,30 @@ def test_read_tsv(enforce_types, type_header):
 
 
 @pytest.mark.parametrize("type_header", [True, False])
-def test_write_tsv(type_header):
+@pytest.mark.parametrize("encoding", ["Latin-1", "utf-8-sig"])
+def test_write_tsv(type_header, encoding):
     dataframe = pd.DataFrame(
-        {"i": [1, 2, 3], "O": ["a", "b", "c"], "f": [1.0, 2.0, 3.0]}
+        {"i": [1, 2, 3], "O": ["äöü", "éçè", "©"], "f": [1.0, 2.0, 3.0]}
     )
 
-    content = write_tsv(dataframe, type_header=type_header)
+    fp = BytesIO()
+
+    write_tsv(dataframe, fp, type_header=type_header, encoding=None)
+
+    content = fp.getvalue().decode(encoding)
 
     if type_header:
-        assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert (
+            fp.getvalue()
+            == "i\tO\tf\n[f]\t[t]\t[f]\n1\täöü\t1.0\n2\téçè\t2.0\n3\t©\t3.0\n"
+        )
     else:
-        assert content == "i\tO\tf\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert fp.getvalue() == "i\tO\tf\n1\täöü\t1.0\n2\téçè\t2.0\n3\t©\t3.0\n"
+
+    fp.seek(0)
 
     # Check round tripping
-    dataframe2 = read_tsv(StringIO(content))
+    dataframe2 = read_tsv(fp, encoding=encoding)
     assert_frame_equal(dataframe, dataframe2)
 
 
