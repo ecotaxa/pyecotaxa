@@ -30,6 +30,27 @@ def test_read_tsv(enforce_types, type_header):
         )
 
 
+@pytest.mark.parametrize("enforce_types", [True, False])
+@pytest.mark.parametrize("type_header", [True, False])
+def test_read_tsv_usecols(enforce_types, type_header):
+    if type_header:
+        file_content = "a\tb\tc\td\n[t]\t[f]\t[t]\t[t]\n1\t2.0\ta\t\n3\t4.0\tb\t"
+    else:
+        file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
+
+    dataframe = read_tsv(
+        StringIO(file_content), enforce_types=enforce_types, usecols=("a", "b")
+    )
+    assert len(dataframe) == 2
+
+    assert list(dataframe.columns) == ["a", "b"]
+
+    if type_header and enforce_types:
+        assert [dt.kind for dt in dataframe.dtypes] == ["O", "f"]
+    else:
+        assert [dt.kind for dt in dataframe.dtypes] == ["i", "f"]
+
+
 @pytest.mark.parametrize("type_header", [True, False])
 def test_write_tsv(type_header):
     dataframe = pd.DataFrame(

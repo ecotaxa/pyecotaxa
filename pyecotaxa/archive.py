@@ -1,6 +1,7 @@
 """Read and write EcoTaxa archives and individual EcoTaxa TSV files."""
 
 import warnings
+from typing import Callable, List, Union
 
 import numpy as np
 import pandas as pd
@@ -51,9 +52,9 @@ def _apply_usecols(
     df: pd.DataFrame, usecols: Union[Callable, List[str]]
 ) -> pd.DataFrame:
     if callable(usecols):
-        columns = [c for c in df.columns if usecols(c)]
+        columns = [c for c in df.columns.get_level_values(0) if usecols(c)]
     else:
-        columns = [c for c in df.columns if c in usecols]
+        columns = [c for c in df.columns.get_level_values(0) if c in usecols]
 
     return df[columns]
 
