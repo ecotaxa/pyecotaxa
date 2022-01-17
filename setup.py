@@ -17,7 +17,14 @@ setup(
     url="https://github.com/ecotaxa/pyecotaxa",
     packages=find_packages(),
     include_package_data=True,
-    install_requires=["pandas", "numpy", "python-dotenv", "requests", "tqdm"],
+    install_requires=[
+        "pandas",
+        "numpy",
+        "python-dotenv",
+        "requests",
+        "tqdm",
+        "werkzeug",
+    ],
     python_requires=">=3.6",
     extras_require={
         "test": [

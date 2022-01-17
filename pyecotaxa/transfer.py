@@ -6,6 +6,8 @@ import time
 import urllib.parse
 import zipfile
 from typing import Dict, List, Optional, Union
+import getpass
+import werkzeug
 
 import dotenv
 import requests
@@ -15,6 +17,12 @@ DEFAULT_EXPORTED_DATA_SHARE = "/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported
 
 # Read environment variables from .env
 dotenv.load_dotenv()
+
+
+class JobError(Exception):
+    """Raised if a server-side job fails."""
+
+    pass
 
 
 def removeprefix(s: str, prefix: str) -> str:
