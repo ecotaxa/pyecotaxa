@@ -1,17 +1,19 @@
 import concurrent.futures
+import getpass
 import glob
 import os
 import shutil
 import time
 import urllib.parse
+import warnings
 import zipfile
 from typing import Dict, List, Optional, Union
-import getpass
-import werkzeug
 
 import dotenv
 import requests
+import semantic_version
 import tqdm
+import werkzeug
 
 DEFAULT_EXPORTED_DATA_SHARE = "/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported_data/"
 
@@ -22,6 +24,10 @@ dotenv.load_dotenv()
 class JobError(Exception):
     """Raised if a server-side job fails."""
 
+    pass
+
+
+class ApiVersionWarning(Warning):
     pass
 
 
@@ -44,16 +50,20 @@ class Transfer:
             If not given, it is read from the environment variable ECOTAXA_API_TOKEN.
             ECOTAXA_API_TOKEN can be given on the command line or defined in a .env file in the project root.
             If that does not succeed, the user is prompted for username and password.
-        exported_data_share (str, optional): Locally accessible location for the results of an export job.
+        exported_data_share (str or bool, optional): Locally accessible location for the results of an export job.
             If given, the archive will be copied, otherwise, it will be transferred over HTTP.
+            If not given, the default location (/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported_data/) will be used if available.
+            To disable the detection of the default location, pass False.
     """
+
+    REQUIRED_OPENAPI_VERSION = "~=0.0.25"
 
     def __init__(
         self,
         *,
         api_endpoint="https://ecotaxa.obs-vlfr.fr/api/",
         api_token: Optional[str] = None,
-        exported_data_share: Optional[str] = None,
+        exported_data_share: Union[None, str, bool] = None,
         verbose=False,
     ):
         if api_endpoint[-1] != "/":
@@ -66,12 +76,39 @@ class Transfer:
 
         self.api_token = api_token
 
-        if exported_data_share is None:
+        if exported_data_share is None or exported_data_share is True:
             if os.path.isdir(DEFAULT_EXPORTED_DATA_SHARE):
                 exported_data_share = DEFAULT_EXPORTED_DATA_SHARE
+            else:
+                exported_data_share = None
         self.exported_data_share = exported_data_share
 
         self.verbose = verbose
+
+        self._check_version()
+
+    def _check_version(self):
+        response = requests.get(
+            urllib.parse.urljoin(self.api_endpoint, "openapi.json"),
+        )
+
+        self._check_response(response)
+
+        openapi_schema = response.json()
+
+        version = openapi_schema.get("info", {}).get("version", "0.0.0")
+
+        if self.verbose:
+            print(f"Server OpenAPI version is {version}")
+
+        if semantic_version.Version(version) not in semantic_version.SimpleSpec(
+            self.REQUIRED_OPENAPI_VERSION
+        ):
+            warnings.warn(
+                f"Required OpenAPI version is {self.REQUIRED_OPENAPI_VERSION}, Server has {version}.",
+                category=ApiVersionWarning,
+                stacklevel=2,
+            )
 
     def login(self, username: str, password: str):
         response = requests.post(
@@ -81,7 +118,10 @@ class Transfer:
 
         self._check_response(response)
 
-        API_TOKEN = response.text
+        self.api_token = response.json()
+
+        if self.verbose:
+            print("Logged in successfully.")
 
     def login_interactive(self):
         username = input("Username: ")
@@ -99,7 +139,7 @@ class Transfer:
     def _get_job(self, job_id) -> Dict:
         """Retrieve details about a job."""
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}"),
+            urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}/"),
             headers=self.auth_headers,
         )
 
@@ -165,8 +205,12 @@ class Transfer:
 
         return dest
 
-    def _get_job_file(self, job_id, *, target_directory: str) -> str:
-        if self.exported_data_share:
+    def _get_job_file(self, job, *, target_directory: str) -> str:
+        job_id = job["id"]
+
+        out_to_ftp = job.get("params", {}).get("req", {}).get("out_to_ftp", False)
+
+        if self.exported_data_share and out_to_ftp:
             return self._get_job_file_local(job_id, target_directory=target_directory)
         return self._get_job_file_remote(job_id, target_directory=target_directory)
 
@@ -187,7 +231,7 @@ class Transfer:
                     "with_internal_ids": False,
                     "only_first_image": False,
                     "sum_subtotal": "A",
-                    "out_to_ftp": True,
+                    "out_to_ftp": self.exported_data_share is not None,
                 },
             },
             headers=self.auth_headers,
@@ -228,7 +272,7 @@ class Transfer:
 
         if not matches:
             if self.verbose:
-                print(f"{project_id} is not yet exported.")
+                print(f"Project {project_id} is not yet exported.")
 
             job = self._start_project_export(project_id)
         else:
@@ -252,7 +296,7 @@ class Transfer:
             raise JobError(job["progress_msg"])
 
         # Download job file
-        return self._get_job_file(job_id, target_directory=target_directory)
+        return self._get_job_file(job, target_directory=target_directory)
 
     def _check_archive(self, archive_fn) -> str:
         if self.verbose:
@@ -283,7 +327,7 @@ class Transfer:
             job_id = job["id"]
             print(f"Cleaning up data for job {job_id}...")
             response = requests.delete(
-                urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}/"),
+                urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}"),
                 headers=self.auth_headers,
             )
 
@@ -386,3 +430,7 @@ class Transfer:
             archive_fns.append(archive_fn)
 
         return archive_fns
+
+
+## TODO: Test with example credentials ({"password": "test!", "username": "ecotaxa.api.user@gmail.com"})) and example project (ID 185)
+## TODO: Make download of images configurable

@@ -24,6 +24,7 @@ setup(
         "requests",
         "tqdm",
         "werkzeug",
+        "semantic_version",
     ],
     python_requires=">=3.6",
     extras_require={
