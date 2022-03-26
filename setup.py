@@ -25,6 +25,7 @@ setup(
         "tqdm",
         "werkzeug",
         "semantic_version",
+        "atomicwrites",
     ],
     python_requires=">=3.6",
     extras_require={

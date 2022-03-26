@@ -1,4 +1,5 @@
 import concurrent.futures
+import enum
 import getpass
 import glob
 import os
@@ -7,18 +8,25 @@ import time
 import urllib.parse
 import warnings
 import zipfile
-from typing import Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import dotenv
 import requests
 import semantic_version
 import tqdm
 import werkzeug
+from atomicwrites import atomic_write as _atomic_write
 
 DEFAULT_EXPORTED_DATA_SHARE = "/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported_data/"
 
 # Read environment variables from .env
 dotenv.load_dotenv()
+
+
+def atomic_write(path, **kwargs):
+    prefix = f".{os.path.basename(path)}-"
+    suffix = ".part"
+    return _atomic_write(path, mode="wb", prefix=prefix, suffix=suffix, **kwargs)
 
 
 class JobError(Exception):
@@ -40,7 +48,100 @@ def removeprefix(s: str, prefix: str) -> str:
         return s[:]
 
 
-class Transfer:
+def copyfile_progress(src, dst, chunksize=1024 ** 2):
+    """Copy data from src to dst with progress"""
+
+    with open(src, "rb") as fsrc:
+        total = os.fstat(fsrc.fileno()).st_size
+
+        print(src, "size", total)
+
+        with atomic_write(dst) as fdst:
+            n_written = 0
+            while 1:
+                buf = fsrc.read(chunksize)
+                if not buf:
+                    break
+                fdst.write(buf)
+
+                n_written += len(buf)
+
+                yield n_written, total
+
+
+class State(enum.Enum):
+    FINISHED = 0
+    RUNNING = 1
+    FAILED = 2
+    WAITING = 3
+
+
+class ProgressListener:
+    def __init__(self) -> None:
+        self.progress_bars = {}
+
+    def update(
+        self,
+        target,
+        state: Optional[State] = None,
+        message: Optional[str] = None,
+        description: Optional[str] = None,
+        progress: Optional[int] = None,
+        total: Optional[int] = None,
+        unit: Optional[str] = None,
+    ):
+        try:
+            progress_bar = self.progress_bars[target]
+        except KeyError:
+            progress_bar = self.progress_bars[target] = tqdm.tqdm(
+                position=0 if target is None else None, unit_scale=True
+            )
+
+        if progress_bar.disable:
+            # Progress bar is already closed
+            return
+
+        if message is not None:
+            if target is not None:
+                message = f"{target}: {message}"
+            progress_bar.write(message)
+
+        if description is not None:
+            if target is not None:
+                description = f"{target}: {description}"
+            progress_bar.set_description(description, refresh=False)
+
+        if progress is not None:
+            progress_bar.n = progress
+
+        if total is not None:
+            progress_bar.total = total
+
+        if unit is not None:
+            progress_bar.unit = unit
+        else:
+            progress_bar.unit = "it"
+
+        if state == State.FINISHED:
+            progress_bar.close()
+        else:
+            progress_bar.refresh()
+
+
+class Obervable:
+    def __init__(self) -> None:
+        self.__observers = []
+
+    def register_observer(self, fn):
+        self.__observers.append(fn)
+        return fn
+
+    def _notify_observers(self, *args, **kwargs):
+        for fn in self.__observers:
+            fn(*args, **kwargs)
+
+
+class Transfer(Obervable):
     """
     Transfer data from and to an EcoTaxa server.
 
@@ -64,8 +165,9 @@ class Transfer:
         api_endpoint="https://ecotaxa.obs-vlfr.fr/api/",
         api_token: Optional[str] = None,
         exported_data_share: Union[None, str, bool] = None,
-        verbose=False,
     ):
+        super().__init__()
+
         if api_endpoint[-1] != "/":
             api_endpoint = api_endpoint + "/"
 
@@ -83,8 +185,6 @@ class Transfer:
                 exported_data_share = None
         self.exported_data_share = exported_data_share
 
-        self.verbose = verbose
-
         self._check_version()
 
     def _check_version(self):
@@ -98,8 +198,7 @@ class Transfer:
 
         version = openapi_schema.get("info", {}).get("version", "0.0.0")
 
-        if self.verbose:
-            print(f"Server OpenAPI version is {version}")
+        self._notify_observers(None, message=f"Server OpenAPI version is {version}")
 
         if semantic_version.Version(version) not in semantic_version.SimpleSpec(
             self.REQUIRED_OPENAPI_VERSION
@@ -120,8 +219,7 @@ class Transfer:
 
         self.api_token = response.json()
 
-        if self.verbose:
-            print("Logged in successfully.")
+        self._notify_observers(None, message="Logged in successfully.")
 
     def login_interactive(self):
         username = input("Username: ")
@@ -147,7 +245,7 @@ class Transfer:
 
         return response.json()
 
-    def _get_job_file_remote(self, job_id, *, target_directory: str) -> str:
+    def _get_job_file_remote(self, project_id, job_id, *, target_directory: str) -> str:
         """Download an exported archive and return the local file name."""
 
         response = requests.get(
@@ -159,6 +257,10 @@ class Transfer:
 
         self._check_response(response)
 
+        content_length = int(response.headers.get("Content-Length", 0)) or None
+
+        chunksize = 1024
+
         _, options = werkzeug.http.parse_options_header(
             response.headers["content-disposition"]
         )
@@ -166,23 +268,44 @@ class Transfer:
 
         dest = os.path.join(target_directory, filename)
 
-        if self.verbose:
-            print(f"Downloading {filename}...")
-
         try:
-            with open(dest, "wb") as f:
-                chunksize = 1024
-                for chunk in tqdm.tqdm(response.iter_content(chunksize), desc=filename):
+            self._notify_observers(
+                project_id, description=f"Downloading...", progress=0, total=1
+            )
+            with atomic_write(dest) as f:
+                total = (
+                    content_length / chunksize if content_length is not None else None
+                )
+                progress = 0
+                for chunk in response.iter_content(chunksize):
                     f.write(chunk)
+                    progress += len(chunk)
+                    self._notify_observers(
+                        project_id,
+                        description=f"Downloading...",
+                        progress=progress,
+                        total=content_length,
+                        unit="iB",
+                    )
+                self._notify_observers(
+                    project_id,
+                    description=f"Downloading...",
+                    progress=progress,
+                    total=progress,
+                    unit="iB",
+                )
         except:
+            # Cleaup destination file
             try:
                 os.remove(dest)
             except FileNotFoundError:
                 pass
 
+            raise
+
         return dest
 
-    def _get_job_file_local(self, job_id, *, target_directory: str) -> str:
+    def _get_job_file_local(self, project_id, job_id, *, target_directory: str) -> str:
         """Download an exported archive and return the local file name."""
 
         pattern = os.path.join(self.exported_data_share, f"task_{job_id}_*.zip")
@@ -199,22 +322,40 @@ class Transfer:
         # Local filename should not have the task_<id>_ prefix to match get_job_file_remote
         dest = os.path.join(target_directory, removeprefix(filename, f"task_{job_id}_"))
 
-        if self.verbose:
-            print(f"Copying {filename} to {dest}...")
-        shutil.copy(remote_fn, dest)
+        try:
+            for n_written, total in copyfile_progress(remote_fn, dest):
+                self._notify_observers(
+                    project_id,
+                    description=f"Copying...",
+                    progress=n_written,
+                    total=total,
+                    unit="iB",
+                )
+
+            shutil.copymode(remote_fn, dest)
+        except:
+            # Cleaup destination file
+            try:
+                os.remove(dest)
+            except FileNotFoundError:
+                pass
 
         return dest
 
-    def _get_job_file(self, job, *, target_directory: str) -> str:
+    def _get_job_file(self, project_id, job, *, target_directory: str) -> str:
         job_id = job["id"]
 
         out_to_ftp = job.get("params", {}).get("req", {}).get("out_to_ftp", False)
 
         if self.exported_data_share and out_to_ftp:
-            return self._get_job_file_local(job_id, target_directory=target_directory)
-        return self._get_job_file_remote(job_id, target_directory=target_directory)
+            return self._get_job_file_local(
+                project_id, job_id, target_directory=target_directory
+            )
+        return self._get_job_file_remote(
+            project_id, job_id, target_directory=target_directory
+        )
 
-    def _start_project_export(self, project_id):
+    def _start_project_export(self, project_id, *, with_images):
         response = requests.post(
             urllib.parse.urljoin(self.api_endpoint, "object_set/export"),
             json={
@@ -227,7 +368,7 @@ class Transfer:
                     "split_by": "S",
                     "coma_as_separator": False,
                     "format_dates_times": False,
-                    "with_images": True,
+                    "with_images": with_images,
                     "with_internal_ids": False,
                     "only_first_image": False,
                     "sum_subtotal": "A",
@@ -242,7 +383,14 @@ class Transfer:
         data = response.json()
 
         job_id = data["job_id"]
-        print(f"Enqueued export job {job_id}.")
+
+        self._notify_observers(
+            project_id,
+            description=f"Enqueued export job.",
+            progress=0,
+            total=100,
+            state=State.WAITING,
+        )
 
         # Get job data
         return self._get_job(job_id)
@@ -258,8 +406,10 @@ class Transfer:
 
         return response.json()
 
-    def _download_archive(self, project_id, *, target_directory: str) -> str:
-        """Download exported archive."""
+    def _download_archive(
+        self, project_id, *, target_directory: str, with_images: bool
+    ) -> str:
+        """Export and download project."""
 
         # Find finished export task for project_id
         jobs = self._get_jobs()
@@ -271,10 +421,7 @@ class Transfer:
         ]
 
         if not matches:
-            if self.verbose:
-                print(f"Project {project_id} is not yet exported.")
-
-            job = self._start_project_export(project_id)
+            job = self._start_project_export(project_id, with_images=with_images)
         else:
             job = matches[0]
 
@@ -286,8 +433,16 @@ class Transfer:
         # 'E' for Error (Stopped with error)
         # 'F' for Finished (Done)."
         while job["state"] not in "FE":
-            print(f"Waiting for job {job_id} to finish...")
-            time.sleep(10)
+            self._notify_observers(
+                project_id,
+                description=f"Exporting ({job['progress_msg']})...",
+                progress=job["progress_pct"],
+                total=100,
+                state=State.RUNNING,
+                unit="%",
+            )
+
+            time.sleep(5)
 
             # Update job data
             job = self._get_job(job_id)
@@ -296,25 +451,37 @@ class Transfer:
             raise JobError(job["progress_msg"])
 
         # Download job file
-        return self._get_job_file(job, target_directory=target_directory)
+        return self._get_job_file(project_id, job, target_directory=target_directory)
 
-    def _check_archive(self, archive_fn) -> str:
-        if self.verbose:
-            print(f"Checking {archive_fn}...")
+    def _check_archive(self, project_id, archive_fn) -> str:
+        self._notify_observers(
+            project_id, description=f"Checking archive...", progress=0, total=1
+        )
 
         try:
             with zipfile.ZipFile(archive_fn) as zf:
                 zf.testzip()
         except Exception:
-            if self.verbose:
-                print(f"[ERROR] {archive_fn}")
+            self._notify_observers(
+                project_id, description=f"Checking archive...", state=State.FAILED
+            )
             raise
 
-        if self.verbose:
-            print(f"[OK] {archive_fn}")
+        self._notify_observers(
+            project_id, description=f"Checking archive...", progress=1, total=1
+        )
 
     def _cleanup_task_data(self, project_id):
         # Find finished export task for project_id
+
+        self._notify_observers(
+            project_id,
+            description=f"Cleaning up...",
+            progress=0,
+            total=1,
+            state=State.RUNNING,
+        )
+
         jobs = self._get_jobs()
 
         matches = [
@@ -325,13 +492,21 @@ class Transfer:
 
         for job in matches:
             job_id = job["id"]
-            print(f"Cleaning up data for job {job_id}...")
+
             response = requests.delete(
                 urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}"),
                 headers=self.auth_headers,
             )
 
             self._check_response(response)
+
+        self._notify_observers(
+            project_id,
+            description=f"Cleaning up...",
+            progress=1,
+            total=1,
+            state=State.RUNNING,
+        )
 
     def _get_archive_for_project(
         self,
@@ -340,26 +515,41 @@ class Transfer:
         target_directory: str,
         check_integrity: bool,
         cleanup_task_data: bool,
+        with_images: bool,
     ) -> str:
         """Find and return the name of the local copy of the requested project."""
 
-        pattern = os.path.join(target_directory, f"export_{project_id}_*.zip")
-        matches = glob.glob(pattern)
+        try:
+            pattern = os.path.join(target_directory, f"export_{project_id}_*.zip")
+            matches = glob.glob(pattern)
 
-        if matches:
-            archive_fn = matches[0]
-        else:
-            if self.verbose:
-                print(f"Project {project_id} is not locally available.")
-            archive_fn = self._download_archive(
-                project_id, target_directory=target_directory
+            if matches:
+                archive_fn = matches[0]
+            else:
+                archive_fn = self._download_archive(
+                    project_id,
+                    target_directory=target_directory,
+                    with_images=with_images,
+                )
+
+            if check_integrity:
+                self._check_archive(project_id, archive_fn)
+
+            if cleanup_task_data:
+                self._cleanup_task_data(project_id)
+        except Exception as exc:
+            self._notify_observers(
+                project_id,
+                description=f"FAILED ({exc})",
+                progress=1,
+                total=1,
+                state=State.FINISHED,
             )
+            return None
 
-        if check_integrity:
-            self._check_archive(archive_fn)
-
-        if cleanup_task_data:
-            self._cleanup_task_data(project_id)
+        self._notify_observers(
+            project_id, description="OK", progress=1, total=1, state=State.FINISHED
+        )
 
         return archive_fn
 
@@ -367,12 +557,18 @@ class Transfer:
         try:
             response.raise_for_status()
         except:
-            if self.verbose:
-                print("Request failed!")
-                print("Request url:", response.request.method, response.request.url)
-                print("Request headers:", response.request.headers)
-                print("Response headers:", response.headers)
-                print("Response text:", response.text)
+            self._notify_observers(
+                None,
+                message="\n".join(
+                    [
+                        "Request failed!",
+                        f"Request url: {response.request.method} {response.request.url}",
+                        f"Request headers: {response.request.headers}",
+                        f"Response headers: {response.headers}",
+                        f"Response text: {response.text}",
+                    ]
+                ),
+            )
             raise
 
     def pull(
@@ -383,6 +579,7 @@ class Transfer:
         n_parallel=1,
         check_integrity=True,
         cleanup_task_data=True,
+        with_images=True,
     ) -> List[str]:
         """
         Export a project and transfer to a local directory.
@@ -390,47 +587,48 @@ class Transfer:
         Args:
             project_ids (int or list): Project IDs to pull.
             target_directory (str, optional): Directory for exported archives.
-            n_parallel (int, optional): Number of parallel tasks.
+            n_parallel (int, optional): Number of projects to be processed in parallel (export jobs, file transfer, ...).
                 More parallel tasks might speed up the pull but also put more load on the server.
             check_integrity (bool, optional): Ensure the integrity of the exported archive.
             cleanup_task_data (bool, optional): Clean up task data on the server after successful download.
+            with_images (bool, optional): Include images in the exported archive.
         """
 
         if isinstance(project_ids, int):
             project_ids = [project_ids]
 
+        os.makedirs(target_directory, exist_ok=True)
+
         executor = concurrent.futures.ThreadPoolExecutor(n_parallel)
 
-        futures_iter = concurrent.futures.as_completed(
-            [
-                executor.submit(
-                    self._get_archive_for_project,
-                    project_id,
-                    target_directory=target_directory,
-                    check_integrity=check_integrity,
-                    cleanup_task_data=cleanup_task_data,
-                )
-                for project_id in project_ids
-            ]
+        self._notify_observers(
+            None, description="Pulling projects...", total=len(project_ids), unit="proj"
         )
 
-        if self.verbose:
-            futures_iter = tqdm.tqdm(
-                futures_iter,
-                total=len(project_ids),
+        futures = [
+            executor.submit(
+                self._get_archive_for_project,
+                project_id,
+                target_directory=target_directory,
+                check_integrity=check_integrity,
+                cleanup_task_data=cleanup_task_data,
+                with_images=with_images,
             )
+            for project_id in project_ids
+        ]
 
-        archive_fns = []
-        for archive_fn_future in futures_iter:
-            archive_fn = archive_fn_future.result()
+        try:
+            archive_fns = []
+            for i, archive_fn_future in enumerate(
+                concurrent.futures.as_completed(futures)
+            ):
+                archive_fn = archive_fn_future.result()
 
-            if self.verbose:
-                print(f"Got {archive_fn}.")
+                self._notify_observers(None, progress=i + 1, unit="proj")
 
-            archive_fns.append(archive_fn)
+                archive_fns.append(archive_fn)
 
-        return archive_fns
-
-
-## TODO: Test with example credentials ({"password": "test!", "username": "ecotaxa.api.user@gmail.com"})) and example project (ID 185)
-## TODO: Make download of images configurable
+            return archive_fns
+        except:
+            executor.shutdown(False)
+            raise
