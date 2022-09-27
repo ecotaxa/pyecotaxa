@@ -8,7 +8,7 @@ import time
 import urllib.parse
 import warnings
 import zipfile
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import dotenv
 import requests
