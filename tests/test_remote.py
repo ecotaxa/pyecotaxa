@@ -2,12 +2,12 @@ import os
 
 import pytest
 
-from pyecotaxa.transfer import Transfer
+from pyecotaxa.remote import Remote
 
 
 @pytest.mark.slow
 def test_pull(tmp_path):
-    t = Transfer()
+    t = Remote()
     t.login("ecotaxa.api.user@gmail.com", "test!")
 
     target_directory = str(tmp_path / "download")

@@ -141,9 +141,9 @@ class Obervable:
             fn(*args, **kwargs)
 
 
-class Transfer(Obervable):
+class Remote(Obervable):
     """
-    Transfer data from and to an EcoTaxa server.
+    Interact with a remote EcoTaxa server.
 
     Args:
         api_endpoint (str, optional): EcoTaxa API endpoint.
