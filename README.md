@@ -20,3 +20,17 @@ df = read_tsv(path_to_file)
 write_tsv(df, path_to_file)
 ```
 
+
+## `pyecotaxa.remote`: Interact with a remote EcoTaxa server
+
+```python
+from pyecotaxa.remote import Remote
+
+r = Remote()
+
+# Login
+r.login(username, password)
+
+# Pull one or more project archives by project_id
+r.pull(project_ids)
+```
