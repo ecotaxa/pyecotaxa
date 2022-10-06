@@ -15,7 +15,8 @@ def test_read_tsv(enforce_types, type_header):
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
+    with pytest.warns(UserWarning if enforce_types and not type_header else None):
+        dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
     assert len(dataframe) == 2
 
     assert list(dataframe.columns) == ["a", "b", "c", "d"]
@@ -38,9 +39,10 @@ def test_read_tsv_usecols(enforce_types, type_header):
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    dataframe = read_tsv(
-        StringIO(file_content), enforce_types=enforce_types, usecols=("a", "b")
-    )
+    with pytest.warns(UserWarning if enforce_types and not type_header else None):
+        dataframe = read_tsv(
+            StringIO(file_content), enforce_types=enforce_types, usecols=("a", "b")
+        )
     assert len(dataframe) == 2
 
     assert list(dataframe.columns) == ["a", "b"]
