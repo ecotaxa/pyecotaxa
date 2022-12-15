@@ -7,7 +7,8 @@ dev
 Added
 ~~~~~
 
-- Introduce remote interface to interact with a remote EcoTaxa server (#12 )
+- Introduce support for reading and writing zip and tar archives in the EcoTaxa format (#13)
+- Introduce remote interface to interact with a remote EcoTaxa server (#12)
 
 
 0.0.3
