@@ -1,10 +1,15 @@
+import io
+import pathlib
+import tarfile
+import zipfile
 from io import StringIO
 
 import numpy as np
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
-from pyecotaxa.archive import read_tsv, write_tsv
+
+from pyecotaxa.archive import Archive, MemberNotFoundError, read_tsv, write_tsv
 
 
 @pytest.mark.parametrize("enforce_types", [True, False])
@@ -80,3 +85,52 @@ def test_empty_str_column():
     assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
 
     assert_series_equal(dataframe["a"], pd.Series([""]), check_names=False)
+
+
+@pytest.mark.parametrize("ext", [".tar", ".zip"])
+@pytest.mark.parametrize("compress_hint", [True, False])
+def test_Archive(tmp_path, ext, compress_hint):
+    archive_fn = str(tmp_path / ("ecotaxa" + ext))
+    print(archive_fn)
+
+    spam_fn: pathlib.Path = tmp_path / "spam.txt"
+    spam_fn.touch()
+
+    with Archive(archive_fn, "w") as archive:
+        with archive.open("foo.txt", "w") as f:
+            f.write(b"foo")
+
+        archive.write_member("bar.txt", b"bar", compress_hint=compress_hint)
+
+        archive.write_member("baz.txt", io.BytesIO(b"baz"))
+
+        with open(spam_fn) as f:
+            archive.write_member(spam_fn.name, f)
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        with archive.open("test.tsv", "w") as f:
+            write_tsv(df, f)
+
+    if ext == ".zip":
+        assert zipfile.is_zipfile(archive_fn), f"{archive_fn} is not a zip file"
+    elif ext == ".tar":
+        assert tarfile.is_tarfile(archive_fn), f"{archive_fn} is not a tar file"
+
+    with Archive(archive_fn, "r") as archive:
+        with archive.open("foo.txt", "r") as f:
+            contents = f.read()
+            assert contents == b"foo"
+
+        assert archive.members() == [
+            "foo.txt",
+            "bar.txt",
+            "baz.txt",
+            "spam.txt",
+            "test.tsv",
+        ]
+
+        with pytest.raises(MemberNotFoundError):
+            archive.open("unavailable")
+
+        for tsv_fn, tsv in archive.iter_tsv():
+            pass
