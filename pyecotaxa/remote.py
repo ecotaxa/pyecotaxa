@@ -221,12 +221,6 @@ class Remote(Obervable):
 
         self._notify_observers(None, message="Logged in successfully.")
 
-    def login_interactive(self):
-        username = input("Username: ")
-        password = getpass.getpass()
-
-        self.login(username, password)
-
     @property
     def auth_headers(self):
         if not self.api_token:
@@ -632,3 +626,13 @@ class Remote(Obervable):
         except:
             executor.shutdown(False)
             raise
+
+    def current_user(self):
+        response = requests.get(
+            urllib.parse.urljoin(self.api_endpoint, "users/me"),
+            headers=self.auth_headers,
+        )
+
+        self._check_response(response)
+
+        return response.json()
