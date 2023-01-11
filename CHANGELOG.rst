@@ -4,6 +4,10 @@ Changelog
 dev
 ---
 
+
+0.0.4
+-----
+
 Added
 ~~~~~
 

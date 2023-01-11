@@ -1,6 +1,5 @@
 import concurrent.futures
 import enum
-import getpass
 import glob
 import os
 import shutil
@@ -10,17 +9,21 @@ import warnings
 import zipfile
 from typing import Dict, List, Optional, Union
 
-import dotenv
 import requests
 import semantic_version
 import tqdm
 import werkzeug
 from atomicwrites import atomic_write as _atomic_write
 
-DEFAULT_EXPORTED_DATA_SHARE = "/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported_data/"
+from pyecotaxa._config import (
+    JsonConfig,
+    check_config,
+    default_config,
+    find_file_recursive,
+    load_env,
+)
 
-# Read environment variables from .env
-dotenv.load_dotenv()
+DEFAULT_EXPORTED_DATA_SHARE = "/remote/plankton_rw/ftp_plankton/Ecotaxa_Exported_data/"
 
 
 def atomic_write(path, **kwargs):
@@ -162,34 +165,45 @@ class Remote(Obervable):
     def __init__(
         self,
         *,
-        api_endpoint="https://ecotaxa.obs-vlfr.fr/api/",
+        api_endpoint: Optional[str] = None,
         api_token: Optional[str] = None,
         exported_data_share: Union[None, str, bool] = None,
+        verbose=False,
     ):
         super().__init__()
 
-        if api_endpoint[-1] != "/":
-            api_endpoint = api_endpoint + "/"
+        user_config_fn = os.path.expanduser("~/.pyecotaxa.json")
+        local_config_fn = find_file_recursive(".pyecotaxa.json")
 
-        self.api_endpoint = api_endpoint
+        # Load config from files and environment
+        config = {
+            **default_config,
+            **JsonConfig(user_config_fn, verbose=verbose),
+            **JsonConfig(local_config_fn, verbose=verbose),
+            **load_env(verbose=verbose),
+        }
 
-        if api_token is None:
-            api_token = os.environ.get("ECOTAXA_API_TOKEN", None)
+        # Update config from parameters
+        if api_endpoint is not None:
+            config["api_endpoint"] = api_endpoint
 
-        self.api_token = api_token
+        if api_token is not None:
+            config["api_token"] = api_token
 
-        if exported_data_share is None or exported_data_share is True:
+        if exported_data_share is True:
             if os.path.isdir(DEFAULT_EXPORTED_DATA_SHARE):
                 exported_data_share = DEFAULT_EXPORTED_DATA_SHARE
-            else:
-                exported_data_share = None
-        self.exported_data_share = exported_data_share
+
+        if exported_data_share is not None:
+            config["exported_data_share"] = exported_data_share
+
+        self.config = check_config(config)
 
         self._check_version()
 
     def _check_version(self):
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, "openapi.json"),
+            urllib.parse.urljoin(self.config["api_endpoint"], "openapi.json"),
         )
 
         self._check_response(response)
@@ -210,28 +224,29 @@ class Remote(Obervable):
             )
 
     def login(self, username: str, password: str):
+        """Login and store api_token."""
         response = requests.post(
-            urllib.parse.urljoin(self.api_endpoint, "login"),
+            urllib.parse.urljoin(self.config["api_endpoint"], "login"),
             json={"password": password, "username": username},
         )
 
         self._check_response(response)
 
-        self.api_token = response.json()
+        self.config["api_token"] = response.json()
 
         self._notify_observers(None, message="Logged in successfully.")
 
     @property
     def auth_headers(self):
-        if not self.api_token:
+        if not self.config["api_token"]:
             raise ValueError("API token not set")
 
-        return {"Authorization": f"Bearer {self.api_token}"}
+        return {"Authorization": f"Bearer {self.config['api_token']}"}
 
     def _get_job(self, job_id) -> Dict:
         """Retrieve details about a job."""
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}/"),
+            urllib.parse.urljoin(self.config["api_endpoint"], f"jobs/{job_id}/"),
             headers=self.auth_headers,
         )
 
@@ -243,7 +258,7 @@ class Remote(Obervable):
         """Download an exported archive and return the local file name."""
 
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}/file"),
+            urllib.parse.urljoin(self.config["api_endpoint"], f"jobs/{job_id}/file"),
             params={},
             headers=self.auth_headers,
             stream=True,
@@ -351,7 +366,7 @@ class Remote(Obervable):
 
     def _start_project_export(self, project_id, *, with_images):
         response = requests.post(
-            urllib.parse.urljoin(self.api_endpoint, "object_set/export"),
+            urllib.parse.urljoin(self.config["api_endpoint"], "object_set/export"),
             json={
                 "filters": {},
                 "request": {
@@ -391,7 +406,7 @@ class Remote(Obervable):
 
     def _get_jobs(self):
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, "jobs"),
+            urllib.parse.urljoin(self.config["api_endpoint"], "jobs"),
             params={"for_admin": False},
             headers=self.auth_headers,
         )
@@ -488,7 +503,7 @@ class Remote(Obervable):
             job_id = job["id"]
 
             response = requests.delete(
-                urllib.parse.urljoin(self.api_endpoint, f"jobs/{job_id}"),
+                urllib.parse.urljoin(self.config["api_endpoint"], f"jobs/{job_id}"),
                 headers=self.auth_headers,
             )
 
@@ -629,7 +644,7 @@ class Remote(Obervable):
 
     def current_user(self):
         response = requests.get(
-            urllib.parse.urljoin(self.api_endpoint, "users/me"),
+            urllib.parse.urljoin(self.config["api_endpoint"], "users/me"),
             headers=self.auth_headers,
         )
 
