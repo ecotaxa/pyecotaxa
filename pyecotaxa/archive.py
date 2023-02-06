@@ -3,6 +3,8 @@
 import fnmatch
 import io
 import pathlib
+import posixpath
+import shutil
 import tarfile
 import warnings
 import zipfile
@@ -10,6 +12,7 @@ from typing import IO, Callable, List, Union
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 __all__ = ["read_tsv", "write_tsv"]
 
@@ -186,6 +189,18 @@ class _TSVIterator:
         return len(self.tsv_fns)
 
 
+class ArchivePath:
+    def __init__(self, archive: "Archive", filename) -> None:
+        self.archive = archive
+        self.filename = filename
+
+    def open(self, mode="r", compress_hint=True) -> IO:
+        return self.archive.open(self.filename, mode, compress_hint)
+
+    def __truediv__(self, filename):
+        return ArchivePath(self.archive, posixpath.join(self.filename, filename))
+
+
 class Archive:
     """
     A generic archive reader and writer for ZIP and TAR archives.
@@ -217,16 +232,12 @@ class Archive:
     def __init__(self, archive_fn: Union[str, pathlib.Path], mode: str = "r"):
         raise NotImplementedError()  # pragma: no cover
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn, mode="r", compress_hint=True) -> IO:
         """
         Raises:
-            MemberNotFoundError if a member was not found
+            MemberNotFoundError if mode=="r" and the member was not found.
         """
-        raise NotImplementedError()  # pragma: no cover
 
-    def write_member(
-        self, member_fn, fileobj_or_bytes: Union[IO, bytes], compress_hint=True
-    ):
         raise NotImplementedError()  # pragma: no cover
 
     def find(self, pattern) -> List[str]:
@@ -257,6 +268,23 @@ class Archive:
 
         """
         return _TSVIterator(self, self.find("*.tsv"), kwargs)
+
+    def __truediv__(self, key):
+        return ArchivePath(self, key)
+
+    def add_images(
+        self, df: pd.DataFrame, src: Union[str, "Archive", pathlib.Path], progress=False
+    ):
+        """Add images referenced in df from src."""
+
+        if isinstance(src, str):
+            src = pathlib.Path(src)
+
+        for img_file_name in tqdm(df["img_file_name"], disable=not progress):
+            with (src / img_file_name).open() as f_src, self.open(
+                img_file_name, "w"
+            ) as f_dst:
+                shutil.copyfileobj(f_src, f_dst)
 
 
 class _TarIO(io.BytesIO):
@@ -297,7 +325,10 @@ class TarArchive(Archive):
     def close(self):
         self._tar.close()
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn, mode="r", compress_hint=True) -> IO:
+        # tar does not compress files individually
+        del compress_hint
+
         if mode == "r":
             try:
                 fp = self._tar.extractfile(self._resolve_member(member_fn))
@@ -331,6 +362,9 @@ class TarArchive(Archive):
     def write_member(
         self, member_fn: str, fileobj_or_bytes: Union[IO, bytes], compress_hint=True
     ):
+        # tar does not compress files individually
+        del compress_hint
+
         if isinstance(fileobj_or_bytes, bytes):
             fileobj_or_bytes = io.BytesIO(fileobj_or_bytes)
 
@@ -341,6 +375,7 @@ class TarArchive(Archive):
             tar_info = self._tar.gettarinfo(arcname=member_fn, fileobj=fileobj_or_bytes)
 
         self._tar.addfile(tar_info, fileobj=fileobj_or_bytes)
+        self._members[tar_info.name] = tar_info
 
     def members(self):
         return self._tar.getnames()
@@ -359,9 +394,17 @@ class ZipArchive(Archive):
     def members(self):
         return self._zip.namelist()
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn: str, mode="r", compress_hint=True) -> IO:
+        if mode == "w" and not compress_hint:
+            # Disable compression
+            member = zipfile.ZipInfo(member_fn)
+            member.compress_type = zipfile.ZIP_STORED
+        else:
+            # Let ZipFile.open select compression and compression level
+            member = member_fn
+
         try:
-            return self._zip.open(member_fn, mode)
+            return self._zip.open(member, mode)
         except KeyError as exc:
             raise MemberNotFoundError(
                 f"{member_fn} not in {self._zip.filename}"
