@@ -51,7 +51,7 @@ def removeprefix(s: str, prefix: str) -> str:
         return s[:]
 
 
-def copyfile_progress(src, dst, chunksize=1024 ** 2):
+def copyfile_progress(src, dst, chunksize=1024**2):
     """Copy data from src to dst with progress"""
 
     with open(src, "rb") as fsrc:
@@ -317,7 +317,9 @@ class Remote(Obervable):
     def _get_job_file_local(self, project_id, job_id, *, target_directory: str) -> str:
         """Download an exported archive and return the local file name."""
 
-        pattern = os.path.join(self.exported_data_share, f"task_{job_id}_*.zip")
+        pattern = os.path.join(
+            self.config["exported_data_share"], f"task_{job_id}_*.zip"
+        )
         matches = glob.glob(pattern)
 
         if not matches:
@@ -356,7 +358,7 @@ class Remote(Obervable):
 
         out_to_ftp = job.get("params", {}).get("req", {}).get("out_to_ftp", False)
 
-        if self.exported_data_share and out_to_ftp:
+        if self.config["exported_data_share"] and out_to_ftp:
             return self._get_job_file_local(
                 project_id, job_id, target_directory=target_directory
             )
@@ -381,7 +383,7 @@ class Remote(Obervable):
                     "with_internal_ids": False,
                     "only_first_image": False,
                     "sum_subtotal": "A",
-                    "out_to_ftp": self.exported_data_share is not None,
+                    "out_to_ftp": self.config["exported_data_share"] is not None,
                 },
             },
             headers=self.auth_headers,
