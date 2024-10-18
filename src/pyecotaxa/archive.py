@@ -105,11 +105,37 @@ def read_tsv(
     fn_or_f: Union[str, pathlib.Path, IOBase],
     encoding: str = "utf-8-sig",
     dtype=None,
-    enforce_types=True,
     **kwargs,
 ):
     """
-    We just use the type header (if provided) to make sure that the appropriate columns are treated as strings.
+    Read a TSV (Tab-Separated Values) file into a pandas DataFrame.
+
+    This function reads a TSV file and processes the type header (if provided)
+    to ensure the correct dtype for each column.
+    It supports handling files from both file paths and file-like objects.
+
+    The dtype of each column is determined by the following precedence order:
+        1. `dtype` parameter (if provided explicitly).
+        2. DEFAULT_DTYPES, containing the correct dtype for well-known columns.
+        3. File header (if the file includes a type header).
+
+    Args:
+        fn_or_f (str, pathlib.Path, or file-like):
+            The file path or file-like object to read the TSV from.
+        encoding (str, optional):
+            The encoding to use for reading the file. Defaults to "utf-8-sig".
+        dtype (dict, optional):
+            A dictionary specifying the data types of columns. Defaults to `None`,
+            which uses the default types.
+        **kwargs:
+            Additional keyword arguments passed to `pandas.read_csv()`.
+
+    Returns:
+        A pandas DataFrame containing the TSV data.
+
+    Notes:
+        The function detects duplicate column names and raises an error if found.
+        It fills NaN values in string columns with empty strings.
     """
     must_close = False
     f: BinaryIO
@@ -184,22 +210,32 @@ def write_tsv(
     **kwargs,
 ):
     """
-    Write an individual EcoTaxa TSV file.
+    Write a pandas DataFrame to a TSV (Tab-Separated Values) file in EcoTaxa format.
+
+    This function writes a DataFrame to a TSV file. Optionally, it includes a type
+    header that specifies the data types for each column, which is required for
+    compatibility with EcoTaxa.
 
     Args:
-        dataframe: A pandas DataFrame.
-        path_or_buf (str, path object or file-like object): ...
-        encoding: Encoding of the TSV file.
-            With the default "utf-8", both UTF8 and signed UTF8 readers can read the file.
-        enforce_types: Enforce the column dtypes provided in the header.
-            Usually, it is desirable to allow pandas to infer the column dtypes.
-        type_header (bool, default true): Include the type header ([t]/[f]).
-            This is required for a successful import into EcoTaxa.
+        dataframe (pd.DataFrame):
+            The pandas DataFrame to be written to the TSV file.
+        path_or_buf (str, pathlib.Path, file-like, optional):
+            The file path or file-like object where the TSV will be written. If None,
+            the function returns the TSV content as a string. Defaults to None.
+        encoding (str, optional):
+            The encoding to use for writing the file. Defaults to "utf-8".
+        type_header (bool, optional):
+            Whether to include a type header specifying the data types for each column.
+            Defaults to True.
+        formatters (Optional[Mapping], optional):
+            A dictionary specifying formatting functions to apply to columns.
+            Defaults to None.
+        **kwargs:
+            Additional keyword arguments passed to `pandas.DataFrame.to_csv()`.
 
-    Return:
-        None or str
-
-            If path_or_buf is None, returns the resulting csv format as a string. Otherwise returns None.
+    Returns:
+        If `path_or_buf` is provided, the function returns None. If `path_or_buf`
+        is None, it returns the TSV content as a string.
     """
 
     if formatters is None:
