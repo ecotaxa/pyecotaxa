@@ -34,7 +34,7 @@ setup(
             # Pytest
             "pytest",
             "pytest-cov",
-            "flake8",
+            "ruff",
         ],
         "docs": [
             "sphinx >= 1.4",
