@@ -1,3 +1,4 @@
+import contextlib
 import io
 import pathlib
 import tarfile
@@ -20,7 +21,9 @@ def test_read_tsv(enforce_types, type_header):
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    with pytest.warns(UserWarning if enforce_types and not type_header else None):
+    with contextlib.ExitStack() as ctx:
+        if enforce_types and not type_header:
+            ctx.enter_context(pytest.warns(UserWarning))
         dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
     assert len(dataframe) == 2
 
@@ -44,7 +47,9 @@ def test_read_tsv_usecols(enforce_types, type_header):
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    with pytest.warns(UserWarning if enforce_types and not type_header else None):
+    with contextlib.ExitStack() as ctx:
+        if enforce_types and not type_header:
+            ctx.enter_context(pytest.warns(UserWarning))
         dataframe = read_tsv(
             StringIO(file_content), enforce_types=enforce_types, usecols=("a", "b")
         )
