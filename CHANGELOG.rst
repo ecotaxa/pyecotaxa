@@ -4,6 +4,8 @@ Changelog
 dev
 ---
 
+- Improve TSV reading and writing and archive handling (#18)
+
 0.0.4
 -----
 
