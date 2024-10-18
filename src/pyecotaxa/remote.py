@@ -279,26 +279,23 @@ class Remote(Obervable):
 
         try:
             self._notify_observers(
-                project_id, description=f"Downloading...", progress=0, total=1
+                project_id, description="Downloading...", progress=0, total=1
             )
             with atomic_write(dest) as f:
-                total = (
-                    content_length / chunksize if content_length is not None else None
-                )
                 progress = 0
                 for chunk in response.iter_content(chunksize):
                     f.write(chunk)
                     progress += len(chunk)
                     self._notify_observers(
                         project_id,
-                        description=f"Downloading...",
+                        description="Downloading...",
                         progress=progress,
                         total=content_length,
                         unit="iB",
                     )
                 self._notify_observers(
                     project_id,
-                    description=f"Downloading...",
+                    description="Downloading...",
                     progress=progress,
                     total=progress,
                     unit="iB",
@@ -337,7 +334,7 @@ class Remote(Obervable):
             for n_written, total in copyfile_progress(remote_fn, dest):
                 self._notify_observers(
                     project_id,
-                    description=f"Copying...",
+                    description="Copying...",
                     progress=n_written,
                     total=total,
                     unit="iB",
@@ -350,6 +347,8 @@ class Remote(Obervable):
                 os.remove(dest)
             except FileNotFoundError:
                 pass
+            
+            raise
 
         return dest
 
@@ -397,7 +396,7 @@ class Remote(Obervable):
 
         self._notify_observers(
             project_id,
-            description=f"Enqueued export job.",
+            description="Enqueued export job.",
             progress=0,
             total=100,
             state=State.WAITING,
@@ -466,7 +465,7 @@ class Remote(Obervable):
 
     def _check_archive(self, project_id, archive_fn) -> str:
         self._notify_observers(
-            project_id, description=f"Checking archive...", progress=0, total=1
+            project_id, description="Checking archive...", progress=0, total=1
         )
 
         try:
@@ -474,12 +473,12 @@ class Remote(Obervable):
                 zf.testzip()
         except Exception:
             self._notify_observers(
-                project_id, description=f"Checking archive...", state=State.FAILED
+                project_id, description="Checking archive...", state=State.FAILED
             )
             raise
 
         self._notify_observers(
-            project_id, description=f"Checking archive...", progress=1, total=1
+            project_id, description="Checking archive...", progress=1, total=1
         )
 
     def _cleanup_task_data(self, project_id):
@@ -487,7 +486,7 @@ class Remote(Obervable):
 
         self._notify_observers(
             project_id,
-            description=f"Cleaning up...",
+            description="Cleaning up...",
             progress=0,
             total=1,
             state=State.RUNNING,
@@ -513,7 +512,7 @@ class Remote(Obervable):
 
         self._notify_observers(
             project_id,
-            description=f"Cleaning up...",
+            description="Cleaning up...",
             progress=1,
             total=1,
             state=State.RUNNING,
