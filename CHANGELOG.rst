@@ -6,6 +6,8 @@ dev
 
 - Improve TSV reading and writing and archive handling (#18)
 
+- Change project structure to src/pyecotaxa (#17)
+
 0.0.4
 -----
 
