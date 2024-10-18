@@ -1,4 +1,3 @@
-import contextlib
 import io
 import pathlib
 import tarfile
@@ -13,23 +12,19 @@ from pandas.testing import assert_frame_equal, assert_series_equal
 from pyecotaxa.archive import Archive, MemberNotFoundError, read_tsv, write_tsv
 
 
-@pytest.mark.parametrize("enforce_types", [True, False])
 @pytest.mark.parametrize("type_header", [True, False])
-def test_read_tsv(enforce_types, type_header):
+def test_read_tsv(type_header):
     if type_header:
         file_content = "a\tb\tc\td\n[t]\t[f]\t[t]\t[t]\n1\t2.0\ta\t\n3\t4.0\tb\t"
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    with contextlib.ExitStack() as ctx:
-        if enforce_types and not type_header:
-            ctx.enter_context(pytest.warns(UserWarning))
-        dataframe = read_tsv(StringIO(file_content), enforce_types=enforce_types)
+    dataframe = read_tsv(StringIO(file_content))
     assert len(dataframe) == 2
 
     assert list(dataframe.columns) == ["a", "b", "c", "d"]
 
-    if type_header and enforce_types:
+    if type_header:
         assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O", "O"]
         assert_series_equal(dataframe["d"], pd.Series(["", ""]), check_names=False)
     else:
@@ -39,25 +34,21 @@ def test_read_tsv(enforce_types, type_header):
         )
 
 
-@pytest.mark.parametrize("enforce_types", [True, False])
 @pytest.mark.parametrize("type_header", [True, False])
-def test_read_tsv_usecols(enforce_types, type_header):
+def test_read_tsv_usecols(type_header):
     if type_header:
         file_content = "a\tb\tc\td\n[t]\t[f]\t[t]\t[t]\n1\t2.0\ta\t\n3\t4.0\tb\t"
     else:
         file_content = "a\tb\tc\td\n1\t2.0\ta\t\n3\t4.0\tb\t"
 
-    with contextlib.ExitStack() as ctx:
-        if enforce_types and not type_header:
-            ctx.enter_context(pytest.warns(UserWarning))
-        dataframe = read_tsv(
-            StringIO(file_content), enforce_types=enforce_types, usecols=("a", "b")
-        )
+    dataframe = read_tsv(
+        StringIO(file_content), usecols=("a", "b")
+    )
     assert len(dataframe) == 2
 
     assert list(dataframe.columns) == ["a", "b"]
 
-    if type_header and enforce_types:
+    if type_header:
         assert [dt.kind for dt in dataframe.dtypes] == ["O", "f"]
     else:
         assert [dt.kind for dt in dataframe.dtypes] == ["i", "f"]
@@ -66,15 +57,30 @@ def test_read_tsv_usecols(enforce_types, type_header):
 @pytest.mark.parametrize("type_header", [True, False])
 def test_write_tsv(type_header):
     dataframe = pd.DataFrame(
-        {"i": [1, 2, 3], "O": ["a", "b", "c"], "f": [1.0, 2.0, 3.0]}
+        {
+            "i": [1, 2, 3],
+            "O": ["a", "b", "c"],
+            "f": [1.0, 2.0, 3.0],
+            "object_annotation_category_id": pd.array([4, None, 6], dtype="Int64"),
+        }
     )
 
+    dataframe_orig = dataframe.copy(deep=True)
     content = write_tsv(dataframe, type_header=type_header)
 
+    # Check that dataframe was not altered
+    assert_frame_equal(dataframe, dataframe_orig)
+
     if type_header:
-        assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert (
+            content
+            == "i\tO\tf\tobject_annotation_category_id\n[f]\t[t]\t[f]\t[f]\n1\ta\t1.0\t4\n2\tb\t2.0\t\n3\tc\t3.0\t6\n"
+        )
     else:
-        assert content == "i\tO\tf\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert (
+            content
+            == "i\tO\tf\tobject_annotation_category_id\n1\ta\t1.0\t4\n2\tb\t2.0\t\n3\tc\t3.0\t6\n"
+        )
 
     # Check round tripping
     dataframe2 = read_tsv(StringIO(content))
@@ -84,7 +90,7 @@ def test_write_tsv(type_header):
 def test_empty_str_column():
     file_content = "a\tb\tc\n[t]\t[f]\t[t]\n\t2.0\ta"
 
-    dataframe = read_tsv(StringIO(file_content), enforce_types=True)
+    dataframe = read_tsv(StringIO(file_content))
     assert len(dataframe) == 1
 
     assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
