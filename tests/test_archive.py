@@ -90,7 +90,7 @@ def test_write_tsv(type_header):
 def test_empty_str_column():
     file_content = "a\tb\tc\n[t]\t[f]\t[t]\n\t2.0\ta"
 
-    dataframe = read_tsv(StringIO(file_content), enforce_types=True)
+    dataframe = read_tsv(StringIO(file_content))
     assert len(dataframe) == 1
 
     assert [dt.kind for dt in dataframe.dtypes] == ["O", "f", "O"]
