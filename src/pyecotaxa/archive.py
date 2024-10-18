@@ -1,122 +1,174 @@
 """Read and write EcoTaxa archives and individual EcoTaxa TSV files."""
 
+import collections
+import csv
 import fnmatch
 import io
 import pathlib
+import posixpath
+import shutil
 import tarfile
-import warnings
 import zipfile
-from typing import IO, Callable, List, Union
+from io import BufferedReader, BytesIO, IOBase
+from typing import (
+    IO,
+    Any,
+    BinaryIO,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
-import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 __all__ = ["read_tsv", "write_tsv"]
 
 
-def _fix_types(dataframe, enforce_types):
-    header = dataframe.columns.get_level_values(0)
-    types = dataframe.columns.get_level_values(1)
+DEFAULT_DTYPES = {
+    "img_file_name": str,
+    "img_rank": int,
+    "object_id": str,
+    "object_link": str,
+    "object_lat": float,
+    "object_lon": float,
+    "object_date": str,
+    "object_time": str,
+    "object_annotation_date": str,
+    "object_annotation_time": str,
+    "object_annotation_category": str,
+    "object_annotation_category_id": "Int64",
+    "object_annotation_person_name": str,
+    "object_annotation_person_email": str,
+    "object_annotation_status": str,
+    "process_id": str,
+    "acq_id": str,
+    "sample_id": str,
+}
 
-    dataframe.columns = header
-
-    float_cols = []
-    text_cols = []
-    for c, t in zip(header, types):
-        if t == "[f]":
-            float_cols.append(c)
-        elif t == "[t]":
-            text_cols.append(c)
-        else:
-            # If the first row contains other values than [f] or [t],
-            # it is not a type header but a normal line of values and has to be inserted into the dataframe.
-            # This is the case for "General export".
-
-            # Clean up empty fields
-            types = [None if t.startswith("Unnamed") else t for t in types]
-
-            # Prepend the current "types" to the dataframe
-            row0 = pd.DataFrame([types], columns=header).astype(dataframe.dtypes)
-
-            if enforce_types:
-                warnings.warn(
-                    "enforce_types=True, but no type header was found.", stacklevel=3
-                )
-
-            return pd.concat((row0, dataframe), ignore_index=True)
-
-    if enforce_types:
-        # Enforce [f] types
-        dataframe[float_cols] = dataframe[float_cols].astype(float)
-        dataframe[text_cols] = dataframe[text_cols].fillna("").astype(str)
-
-    return dataframe
+VALID_PREFIXES = {"object", "sample", "acq", "process", "img"}
 
 
-def _apply_usecols(
-    df: pd.DataFrame, usecols: Union[Callable, List[str]]
-) -> pd.DataFrame:
-    if callable(usecols):
-        columns = [c for c in df.columns.get_level_values(0) if usecols(c)]
+def _parse_tsv_header(
+    f: IOBase, encoding: str
+) -> Tuple[Optional[Sequence[str]], Dict[str, Any], int]:
+    skiprows = 0
+
+    header: List[str] = []
+    while len(header) < 2:
+        line = f.readline()
+
+        if not line:
+            break
+
+        skiprows += 1
+
+        if isinstance(line, bytes):
+            line = line.decode(encoding)
+
+        if not line.startswith("#"):
+            header.append(line)
+
+    if not header:
+        return None, {}, 0
+
+    csv_reader = csv.reader(header, delimiter="\t")
+
+    names = next(csv_reader)
+
+    try:
+        maybe_types = next(csv_reader)
+    except StopIteration:
+        # No second line
+        return names, {}, skiprows
+
+    if len(names) != len(maybe_types):
+        raise ValueError("Number of names does not match number of types")
+
+    # Second line *might* contain types
+    if all(t in ("[t]", "[f]") for t in maybe_types):
+        # Infer dtype
+        dtype = {n: str for n, t in zip(names, maybe_types) if t == "[t]"}
     else:
-        columns = [c for c in df.columns.get_level_values(0) if c in usecols]
+        # This wasn't a type row after all
+        dtype = {}
+        skiprows -= 1
 
-    return df[columns]
+    return names, dtype, skiprows
 
 
 def read_tsv(
-    filepath_or_buffer,
+    fn_or_f: Union[str, pathlib.Path, IOBase],
     encoding: str = "utf-8-sig",
-    enforce_types=False,
-    usecols: Union[None, Callable, List[str]] = None,
+    dtype=None,
+    enforce_types=True,
     **kwargs,
-) -> pd.DataFrame:
+):
     """
-    Read an individual EcoTaxa TSV file.
-
-    Args:
-        filepath_or_buffer (str, path object or file-like object): ...
-        encoding: Encoding of the TSV file.
-            With the default "utf-8-sig", both UTF8 and signed UTF8 can be read.
-        enforce_types: Enforce the column dtypes provided in the header.
-            Usually, it is desirable to allow pandas to infer the column dtypes.
-        usecols: List of strings or callable.
-        **kwargs: Additional kwargs are passed to :func:`pandas:pandas.read_csv`.
-
-    Returns:
-        A Pandas :class:`~pandas:pandas.DataFrame`.
+    We just use the type header (if provided) to make sure that the appropriate columns are treated as strings.
     """
+    must_close = False
+    f: BinaryIO
 
-    if usecols is not None:
-        chunksize = kwargs.pop("chunksize", 10000)
+    if dtype is None:
+        dtype = DEFAULT_DTYPES
 
-        # Read a few rows a time
-        dataframe: pd.DataFrame = pd.concat(
-            [
-                _apply_usecols(chunk, usecols)
-                for chunk in pd.read_csv(
-                    filepath_or_buffer,
-                    sep="\t",
-                    encoding=encoding,
-                    header=[0, 1],
-                    chunksize=chunksize,
-                    **kwargs,
-                )
-            ]
-        )  # type: ignore
+    if isinstance(fn_or_f, str):
+        fn_or_f = pathlib.Path(fn_or_f)
+
+    if hasattr(fn_or_f, "open"):
+        f = fn_or_f.open("r", encoding=encoding)  # type: ignore
+        must_close = True
     else:
-        if kwargs.pop("chunksize", None) is not None:
-            warnings.warn("Parameter chunksize is ignored.")
+        f = fn_or_f  # type: ignore
 
-        dataframe: pd.DataFrame = pd.read_csv(
-            filepath_or_buffer, sep="\t", encoding=encoding, header=[0, 1], **kwargs
-        )  # type: ignore
+    try:
+        if f.seekable():
+            # We can just rewind after inspecting the header
+            names, header_dtype, skiprows = _parse_tsv_header(f, encoding)
+            f.seek(0)
+        else:
+            # Make sure that we can peek into the file
+            if not hasattr(f, "peek"):
+                f = BufferedReader(f)  # type: ignore
 
-    return _fix_types(dataframe, enforce_types)
+            # Peek the first 8kb and inspect
+            header_f = BytesIO(f.peek(8 * 1024))  # type: ignore
+            names, header_dtype, skiprows = _parse_tsv_header(header_f, encoding)
+
+        if enforce_types:
+            dtype = {**dtype, **header_dtype}
+
+        # Detect duplicate names
+        duplicate_names = [
+            f"'{name}' ({count}x)"
+            for name, count in collections.Counter(names).items()
+            if count > 1
+        ]
+        if duplicate_names:
+            raise ValueError(
+                "TSV file contains duplicate column names: "
+                + (", ".join(duplicate_names))
+            )
+
+        dataframe = pd.read_csv(f, sep="\t", names=names, dtype=dtype, skiprows=skiprows, **kwargs)  # type: ignore
+
+        for c, dt in dataframe.dtypes.items():
+            if pd.api.types.is_string_dtype(dt):
+                dataframe[c] = dataframe[c].fillna("")
+
+        return dataframe
+    finally:
+        if must_close:
+            f.close()
 
 
 def _dtype_to_ecotaxa(dtype):
-    if np.issubdtype(dtype, np.number):
+    if pd.api.types.is_numeric_dtype(dtype):
         return "[f]"
 
     return "[t]"
@@ -127,6 +179,7 @@ def write_tsv(
     path_or_buf=None,
     encoding="utf-8",
     type_header=True,
+    formatters: Optional[Mapping] = None,
     **kwargs,
 ):
     """
@@ -148,14 +201,27 @@ def write_tsv(
             If path_or_buf is None, returns the resulting csv format as a string. Otherwise returns None.
     """
 
-    if type_header:
-        # Make a copy before changing the index
-        dataframe = dataframe.copy()
+    if formatters is None:
+        formatters = {}
 
+    dataframe = dataframe.copy(deep=False)
+
+    # Calculate type header before formatting values
+    ecotaxa_types = [_dtype_to_ecotaxa(dt) for dt in dataframe.dtypes]
+
+    # Apply formatting
+    for col in dataframe.columns:
+        fmt = formatters.get(col)
+
+        if fmt is None:
+            continue
+
+        dataframe[col] = dataframe[col].apply(fmt)
+
+    if type_header:
         # Inject types into header
-        type_header = [_dtype_to_ecotaxa(dt) for dt in dataframe.dtypes]
         dataframe.columns = pd.MultiIndex.from_tuples(
-            list(zip(dataframe.columns, type_header))
+            list(zip(dataframe.columns, ecotaxa_types))
         )
 
     return dataframe.to_csv(
@@ -186,6 +252,22 @@ class _TSVIterator:
         return len(self.tsv_fns)
 
 
+class ArchivePath:
+    def __init__(self, archive: "Archive", filename) -> None:
+        self.archive = archive
+        self.filename = filename
+
+    def open(self, mode="r", compress_hint=True) -> IO:
+        return self.archive.open(self.filename, mode, compress_hint)
+
+    def __truediv__(self, filename):
+        return ArchivePath(self.archive, posixpath.join(self.filename, filename))
+
+
+class ValidationError(Exception):
+    pass
+
+
 class Archive:
     """
     A generic archive reader and writer for ZIP and TAR archives.
@@ -210,6 +292,8 @@ class Archive:
 
             raise UnknownArchiveError(f"No handler found to write {archive_fn}")
 
+        raise ValueError("Unknown mode: {mode}")
+
     @staticmethod
     def is_readable(archive_fn) -> bool:
         raise NotImplementedError()  # pragma: no cover
@@ -217,16 +301,14 @@ class Archive:
     def __init__(self, archive_fn: Union[str, pathlib.Path], mode: str = "r"):
         raise NotImplementedError()  # pragma: no cover
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn, mode="r", compress_hint=True) -> IO:
         """
-        Raises:
-            MemberNotFoundError if a member was not found
-        """
-        raise NotImplementedError()  # pragma: no cover
+        Open an archive member.
 
-    def write_member(
-        self, member_fn, fileobj_or_bytes: Union[IO, bytes], compress_hint=True
-    ):
+        Raises:
+            MemberNotFoundError if mode=="r" and the member was not found.
+        """
+
         raise NotImplementedError()  # pragma: no cover
 
     def find(self, pattern) -> List[str]:
@@ -257,6 +339,77 @@ class Archive:
 
         """
         return _TSVIterator(self, self.find("*.tsv"), kwargs)
+
+    def __truediv__(self, key):
+        return ArchivePath(self, key)
+
+    def add_images(
+        self, df: pd.DataFrame, src: Union[str, "Archive", pathlib.Path], progress=False
+    ):
+        """Add images referenced in df from src."""
+
+        if isinstance(src, str):
+            src = pathlib.Path(src)
+
+        for img_file_name in tqdm(df["img_file_name"], disable=not progress):
+            with (src / img_file_name).open() as f_src, self.open(
+                img_file_name, "w"
+            ) as f_dst:
+                shutil.copyfileobj(f_src, f_dst)
+
+    def validate(self):
+        """Mimic the validation done by EcoTaxa."""
+
+        # ecotaxa_back/py/BO/Bundle.py:43
+        MAX_FILES = 2000
+
+        tsv: pd.DataFrame
+
+        for i, (tsv_fn, tsv) in enumerate(self.iter_tsv(), start=1):
+            if i > MAX_FILES:
+                raise ValidationError(
+                    f"Archive contains too many files, max. is {MAX_FILES}"
+                )
+
+            errors = []
+
+            # Validate columns (validate_structure)
+            # ecotaxa_back/py/BO/TSVFile.py:873
+            for c in tsv.columns:
+                if c in DEFAULT_DTYPES:
+                    # This is a known field
+                    # TODO: Check dtype
+                    continue
+
+                try:
+                    prefix, name = c.split("_", 1)
+                except ValueError:
+                    errors.append(
+                        f"Invalid field '{c}', format must be '<prefix>_<name>'"
+                    )
+                    continue
+
+                if prefix not in VALID_PREFIXES:
+                    errors.append(f"Invalid prefix '{prefix}' for column '{c}'")
+                    continue
+
+            # Ensure that each used prefix contains at least an ID
+            for prefix in ["object", "acq", "process", "sample"]:
+                expected_id = f"{prefix}_id"
+                prefix_columns = [c for c in tsv.columns if c.startswith(prefix)]
+                if prefix_columns and expected_id not in tsv.columns:
+                    errors.append(
+                        f"Field {expected_id} is mandatory as there are some '{prefix}' columns: {sorted(prefix_columns)}."
+                    )
+
+            if errors:
+                raise ValidationError(
+                    f"Invalid structure in {tsv_fn}:\n" + ("\n".join(errors))
+                )
+
+            # TODO: Validate contents (validate_content)
+            # ecotaxa_back/py/BO/TSVFile.py:967
+            ...
 
 
 class _TarIO(io.BytesIO):
@@ -297,7 +450,10 @@ class TarArchive(Archive):
     def close(self):
         self._tar.close()
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn, mode="r", compress_hint=True) -> IO:
+        # tar does not compress files individually
+        del compress_hint
+
         if mode == "r":
             try:
                 fp = self._tar.extractfile(self._resolve_member(member_fn))
@@ -331,6 +487,9 @@ class TarArchive(Archive):
     def write_member(
         self, member_fn: str, fileobj_or_bytes: Union[IO, bytes], compress_hint=True
     ):
+        # tar does not compress files individually
+        del compress_hint
+
         if isinstance(fileobj_or_bytes, bytes):
             fileobj_or_bytes = io.BytesIO(fileobj_or_bytes)
 
@@ -341,6 +500,7 @@ class TarArchive(Archive):
             tar_info = self._tar.gettarinfo(arcname=member_fn, fileobj=fileobj_or_bytes)
 
         self._tar.addfile(tar_info, fileobj=fileobj_or_bytes)
+        self._members[tar_info.name] = tar_info
 
     def members(self):
         return self._tar.getnames()
@@ -359,9 +519,17 @@ class ZipArchive(Archive):
     def members(self):
         return self._zip.namelist()
 
-    def open(self, member_fn, mode="r") -> IO:
+    def open(self, member_fn: str, mode="r", compress_hint=True) -> IO:
+        if mode == "w" and not compress_hint:
+            # Disable compression
+            member = zipfile.ZipInfo(member_fn)
+            member.compress_type = zipfile.ZIP_STORED
+        else:
+            # Let ZipFile.open select compression and compression level
+            member = member_fn
+
         try:
-            return self._zip.open(member_fn, mode)
+            return self._zip.open(member, mode)
         except KeyError as exc:
             raise MemberNotFoundError(
                 f"{member_fn} not in {self._zip.filename}"

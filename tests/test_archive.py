@@ -66,15 +66,30 @@ def test_read_tsv_usecols(enforce_types, type_header):
 @pytest.mark.parametrize("type_header", [True, False])
 def test_write_tsv(type_header):
     dataframe = pd.DataFrame(
-        {"i": [1, 2, 3], "O": ["a", "b", "c"], "f": [1.0, 2.0, 3.0]}
+        {
+            "i": [1, 2, 3],
+            "O": ["a", "b", "c"],
+            "f": [1.0, 2.0, 3.0],
+            "object_annotation_category_id": pd.array([4, None, 6], dtype="Int64"),
+        }
     )
 
+    dataframe_orig = dataframe.copy(deep=True)
     content = write_tsv(dataframe, type_header=type_header)
 
+    # Check that dataframe was not altered
+    assert_frame_equal(dataframe, dataframe_orig)
+
     if type_header:
-        assert content == "i\tO\tf\n[f]\t[t]\t[f]\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert (
+            content
+            == "i\tO\tf\tobject_annotation_category_id\n[f]\t[t]\t[f]\t[f]\n1\ta\t1.0\t4\n2\tb\t2.0\t\n3\tc\t3.0\t6\n"
+        )
     else:
-        assert content == "i\tO\tf\n1\ta\t1.0\n2\tb\t2.0\n3\tc\t3.0\n"
+        assert (
+            content
+            == "i\tO\tf\tobject_annotation_category_id\n1\ta\t1.0\t4\n2\tb\t2.0\t\n3\tc\t3.0\t6\n"
+        )
 
     # Check round tripping
     dataframe2 = read_tsv(StringIO(content))
