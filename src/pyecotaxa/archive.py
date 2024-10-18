@@ -116,6 +116,8 @@ def read_tsv(
 
     if dtype is None:
         dtype = DEFAULT_DTYPES
+    else:
+        dtype = {**DEFAULT_DTYPES, **dtype}
 
     if isinstance(fn_or_f, str):
         fn_or_f = pathlib.Path(fn_or_f)
@@ -140,8 +142,7 @@ def read_tsv(
             header_f = BytesIO(f.peek(8 * 1024))  # type: ignore
             names, header_dtype, skiprows = _parse_tsv_header(header_f, encoding)
 
-        if enforce_types:
-            dtype = {**dtype, **header_dtype}
+        dtype = {**header_dtype, **dtype}
 
         # Detect duplicate names
         duplicate_names = [
