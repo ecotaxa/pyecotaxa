@@ -30,7 +30,7 @@ setup(
     ],
     python_requires=">=3.6",
     extras_require={
-        "test": [
+        "tests": [
             # Pytest
             "pytest",
             "pytest-cov",
