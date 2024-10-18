@@ -15,7 +15,8 @@ setup(
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
     url="https://github.com/ecotaxa/pyecotaxa",
-    packages=find_packages(),
+    packages=find_packages("src"),
+    package_dir={"": "src"},
     include_package_data=True,
     install_requires=[
         "pandas",
@@ -40,7 +41,7 @@ setup(
             "sphinx_rtd_theme",
             "sphinx-autodoc-typehints>=1.10.0",
         ],
-        "dev": ["black"],
+        "dev": ["black", "versioneer"],
     },
     entry_points={},
     classifiers=[
