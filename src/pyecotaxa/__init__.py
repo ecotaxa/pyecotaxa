@@ -1,3 +1,7 @@
-from . import _version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = _version.get_versions()["version"]
+try:
+    __version__ = version("pyecotaxa")
+except PackageNotFoundError:
+    # Fallback for running directly from an unpackaged source tree.
+    __version__ = "0+unknown"

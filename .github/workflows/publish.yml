@@ -1,0 +1,81 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build package distributions
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Hatch-vcs needs full history to derive versions from tags.
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build wheel and sdist with hatch (publish-safe version)
+        run: |
+          RAW_VERSION="$(uvx hatch version)"
+          PUBLISH_VERSION="${RAW_VERSION%%+*}"
+          echo "Using publish version: ${PUBLISH_VERSION} (from ${RAW_VERSION})"
+          SETUPTOOLS_SCM_PRETEND_VERSION="${PUBLISH_VERSION}" uvx hatch build
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/*
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+      - name: Validate package metadata
+        run: uvx twine check dist/*
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Skip if the version already exists on TestPyPI (to avoid failing the workflow)
+          skip-existing: true
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Fail if the version already exists on PyPI
+          skip-existing: false
