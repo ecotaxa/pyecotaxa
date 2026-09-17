@@ -4,6 +4,8 @@ Changelog
 dev
 ---
 
+- Migrate packaging to hatch/uv and modernize dependency management (#19)
+
 - Improve TSV reading and writing and archive handling (#18)
 
 - Change project structure to src/pyecotaxa (#17)
