@@ -11,18 +11,18 @@ license = { text = "GNU General Public License v3 (GPLv3)" }
 authors = [{ name = "Simon-Martin Schroeder", email = "sms@informatik.uni-kiel.de" }]
 dynamic = ["version"]
 dependencies = [
-	"pandas>=1.2",
-	"numpy",
-	"python-dotenv",
-	"requests",
-	"tqdm",
-	"werkzeug",
-	"semantic_version",
-	"atomicwrites",
-	"click",
-	"anytree",
-	"python-dateutil",
-	"requests_toolbelt",
+    "anytree>=2.12.1",
+    "atomicwrites>=1.4.1",
+    "click>=8.1.8",
+    "numpy>=2.0.2",
+    "pandas>=2.3.3",
+    "python-dateutil>=2.9.0.post0",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+    "requests-toolbelt>=1.0.0",
+    "semantic-version>=2.10.0",
+    "tqdm>=4.70.1",
+    "werkzeug>=3.1.8",
 ]
 classifiers = [
 	"Programming Language :: Python :: 3",
