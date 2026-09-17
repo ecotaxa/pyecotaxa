@@ -20,8 +20,12 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
-      - name: Build wheel and sdist with hatch
-        run: uvx hatch build
+      - name: Build wheel and sdist with hatch (publish-safe version)
+        run: |
+          RAW_VERSION="$(uvx hatch version)"
+          PUBLISH_VERSION="${RAW_VERSION%%+*}"
+          echo "Using publish version: ${PUBLISH_VERSION} (from ${RAW_VERSION})"
+          SETUPTOOLS_SCM_PRETEND_VERSION="${PUBLISH_VERSION}" uvx hatch build
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
@@ -32,8 +36,10 @@ jobs:
     name: Publish to TestPyPI
     needs: build
     runs-on: ubuntu-latest
-    env:
-      TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+    environment: testpypi
+    permissions:
+      id-token: write
+      attestations: write
 
     steps:
       - name: Download distributions
@@ -46,22 +52,21 @@ jobs:
       - name: Validate package metadata
         run: uvx twine check dist/*
       - name: Publish to TestPyPI
-        if: env.TEST_PYPI_TOKEN != ''
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ env.TEST_PYPI_TOKEN }}
           repository-url: https://test.pypi.org/legacy/
-      - name: Skip publish when token is unavailable
-        if: env.TEST_PYPI_TOKEN == ''
-        run: |
-          echo "TEST_PYPI_API_TOKEN is not available for this run."
-          echo "Distribution artifacts were built and validated, but upload was skipped."
+          # Skip if the version already exists on TestPyPI (to avoid failing the workflow)
+          skip-existing: true
 
   publish-pypi:
     name: Publish to PyPI
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
 
     steps:
       - name: Download distributions
@@ -72,4 +77,5 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          # Fail if the version already exists on PyPI
+          skip-existing: false
