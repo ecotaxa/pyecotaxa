@@ -1,6 +1,11 @@
 Changelog
 =========
 
+dev
+---
+
+- Drop support for Python 3.9 and add support for Python 3.13 and 3.14 (#20)
+
 0.0.5
 -----
 
