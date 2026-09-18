@@ -1,8 +1,8 @@
 Changelog
 =========
 
-dev
----
+0.0.5
+-----
 
 - Migrate packaging to hatch/uv and modernize dependency management (#19)
 
