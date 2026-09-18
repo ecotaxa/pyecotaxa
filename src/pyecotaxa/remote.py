@@ -42,15 +42,6 @@ class ApiVersionWarning(Warning):
     pass
 
 
-def removeprefix(s: str, prefix: str) -> str:
-    """Polyfill for str.removeprefix introduced in Python 3.9."""
-
-    if s.startswith(prefix):
-        return s[len(prefix) :]
-    else:
-        return s[:]
-
-
 def copyfile_progress(src, dst, chunksize=1024**2):
     """Copy data from src to dst with progress"""
 
@@ -328,7 +319,7 @@ class Remote(Obervable):
         filename = os.path.basename(remote_fn)
 
         # Local filename should not have the task_<id>_ prefix to match get_job_file_remote
-        dest = os.path.join(target_directory, removeprefix(filename, f"task_{job_id}_"))
+        dest = os.path.join(target_directory, filename.removeprefix(f"task_{job_id}_"))
 
         try:
             for n_written, total in copyfile_progress(remote_fn, dest):
