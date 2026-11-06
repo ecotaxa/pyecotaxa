@@ -31,7 +31,19 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.coverage",
     "sphinx.ext.napoleon",
+    "sphinx.ext.intersphinx",
+    "sphinx_autodoc_typehints",
 ]
+
+intersphinx_mapping = {
+    "pandas": ("http://pandas.pydata.org/pandas-docs/dev", None),
+}
+
+napoleon_use_param = False
+napoleon_use_keyword = False
+napoleon_use_rtype = False
+typehints_document_rtype = False
+typehints_fully_qualified = False
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
